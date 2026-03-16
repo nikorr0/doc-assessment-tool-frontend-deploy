@@ -77,7 +77,7 @@ export default function ProjectsPage() {
       {/* <p className="subtitle">Создавайте проекты, загружайте приказы и акты, отслеживайте прогресс задач.</p> */}
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Создать проект</h3>
+        <h3 style={{ marginTop: 0 }}>Создать проект TEST</h3>
         <form onSubmit={handleCreate} className="input-row">
           <input
             type="text"
