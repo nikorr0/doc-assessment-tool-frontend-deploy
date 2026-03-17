@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   deleteAct,
   generateTemplate,
+  getDocumentValidation,
   getOrder,
   getProject,
   listActs,
@@ -14,9 +15,31 @@ import {
   uploadAct,
 } from "../api/projects";
 import { getApiErrorMessage } from "../utils/error";
-import type { DocumentRecord, GroupRecord, Project, TemplateRecord, TaskRecord } from "../types";
+import type {
+  DocumentRecord,
+  DocumentValidationStatus,
+  GroupRecord,
+  Project,
+  TemplateRecord,
+  TaskRecord,
+} from "../types";
 
 type LoadState = "idle" | "loading" | "error";
+
+type ValidationBanner = {
+  tone: "info" | "success" | "warning" | "error";
+  text: string;
+};
+
+type ValidationModal = {
+  tone: "warning" | "error";
+  title: string;
+  issues: string[];
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export default function OrderPage() {
   const { projectId, orderId } = useParams<{ projectId: string; orderId: string }>();
@@ -32,6 +55,8 @@ export default function OrderPage() {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [uploadingQuarter, setUploadingQuarter] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [validationBanner, setValidationBanner] = useState<ValidationBanner | null>(null);
+  const [validationModal, setValidationModal] = useState<ValidationModal | null>(null);
   const [templates, setTemplates] = useState<TemplateRecord[]>([]);
   const [templatesState, setTemplatesState] = useState<LoadState>("loading");
   const [templateError, setTemplateError] = useState<string | null>(null);
@@ -55,6 +80,8 @@ export default function OrderPage() {
   const TEMPLATE_POLL_MAX_ATTEMPTS = 20;
   const TASKS_POLL_INTERVAL_MS = 4000;
   const TASKS_POLL_MAX_ATTEMPTS = 20;
+  const VALIDATION_POLL_INTERVAL_MS = 1500;
+  const VALIDATION_POLL_MAX_ATTEMPTS = 40;
 
   useEffect(() => {
     if (!projectId) return;
@@ -432,6 +459,77 @@ export default function OrderPage() {
     });
   }
 
+  const waitForValidation = useCallback(
+    async (documentId: string): Promise<DocumentValidationStatus> => {
+      let latest: DocumentValidationStatus | null = null;
+      for (let attempt = 0; attempt < VALIDATION_POLL_MAX_ATTEMPTS; attempt += 1) {
+        const current = await getDocumentValidation(documentId);
+        latest = current;
+        if (current.status !== "pending") {
+          return current;
+        }
+        await sleep(VALIDATION_POLL_INTERVAL_MS);
+      }
+      if (latest) {
+        return latest;
+      }
+      return getDocumentValidation(documentId);
+    },
+    [VALIDATION_POLL_INTERVAL_MS, VALIDATION_POLL_MAX_ATTEMPTS]
+  );
+
+  const handleValidationOutcome = useCallback(
+    (record: DocumentRecord, validation: DocumentValidationStatus) => {
+      if (validation.status === "error") {
+        const issues =
+          validation.errors.length > 0
+            ? validation.errors
+            : [validation.summary || "Документ не прошел валидацию."];
+        setValidationModal({
+          tone: "error",
+          title: "Акт не прошел валидацию",
+          issues,
+        });
+        setValidationBanner({ tone: "error", text: "Акт отклонен валидатором." });
+        setActs((prev) => prev.filter((act) => act.documentId !== record.documentId));
+        return;
+      }
+
+      if (validation.status === "warning") {
+        const issues =
+          validation.warnings.length > 0
+            ? validation.warnings
+            : [validation.summary || "В акте есть предупреждения."];
+        setValidationModal({
+          tone: "warning",
+          title: "Акт загружен с предупреждениями",
+          issues,
+        });
+        setValidationBanner({
+          tone: "warning",
+          text: "Проверка завершена с предупреждениями. Акт передан в обработку.",
+        });
+        startTasksPolling();
+        return;
+      }
+
+      if (validation.status === "success") {
+        setValidationBanner({
+          tone: "success",
+          text: "Ошибок не найдено. Акт передан в обработку.",
+        });
+        startTasksPolling();
+        return;
+      }
+
+      setValidationBanner({
+        tone: "info",
+        text: "Проверка акта выполняется дольше обычного. Документ остается в обработке.",
+      });
+    },
+    [startTasksPolling]
+  );
+
   const handleQuarterUpload = useCallback(
     async (quarter: number) => {
       if (!projectId || !orderId) return;
@@ -441,6 +539,7 @@ export default function OrderPage() {
       }
       setUploadError(null);
       setTemplateInfo(null);
+      setValidationBanner(null);
       const file = await requestDocxFile();
       if (!file) {
         return;
@@ -458,8 +557,16 @@ export default function OrderPage() {
           );
           return [record, ...filtered];
         });
-        refreshActs();
-        startTasksPolling();
+        setValidationBanner({ tone: "info", text: "Проверяем документ..." });
+        void waitForValidation(record.documentId)
+          .then((validation) => handleValidationOutcome(record, validation))
+          .catch((validationError: unknown) => {
+            console.error(validationError);
+            setValidationBanner({
+              tone: "warning",
+              text: "Акт загружен, но не удалось получить результат валидации.",
+            });
+          });
       } catch (err: unknown) {
         console.error(err);
         setUploadError(getApiErrorMessage(err, "Ошибка загрузки акта"));
@@ -467,7 +574,7 @@ export default function OrderPage() {
         setUploadingQuarter(null);
       }
     },
-    [projectId, orderId, selectedGroupId, refreshActs, startTasksPolling]
+    [projectId, orderId, selectedGroupId, waitForValidation, handleValidationOutcome]
   );
 
   const handleTemplateGenerate = useCallback(
@@ -713,6 +820,11 @@ export default function OrderPage() {
               </tbody>
             </table>
             {uploadError && <div style={{ color: "crimson", marginTop: 8 }}>{uploadError}</div>}
+            {validationBanner && (
+              <div className={`validation-banner validation-banner--${validationBanner.tone}`}>
+                {validationBanner.text}
+              </div>
+            )}
             {templateError && <div style={{ color: "crimson", marginTop: 8 }}>{templateError}</div>}
             {templateInfo && <div style={{ color: "#16a34a", marginTop: 8 }}>{templateInfo}</div>}
           </>
@@ -963,6 +1075,27 @@ export default function OrderPage() {
                 disabled={deleting}
               >
                 Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {validationModal && (
+        <div className="modal-overlay" onClick={() => setValidationModal(null)}>
+          <div
+            className={`modal-content validation-modal validation-modal--${validationModal.tone}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3>{validationModal.title}</h3>
+            <ul className="validation-issues-list">
+              {validationModal.issues.map((issue, index) => (
+                <li key={`${index}-${issue}`}>{issue}</li>
+              ))}
+            </ul>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+              <button type="button" className="secondary" onClick={() => setValidationModal(null)}>
+                Закрыть
               </button>
             </div>
           </div>

@@ -11,6 +11,7 @@ export const deleteProject = activeApi.deleteProject;
 export const listOrders = activeApi.listOrders;
 export const uploadOrder = activeApi.uploadOrder;
 export const getOrder = activeApi.getOrder;
+export const getDocumentValidation = activeApi.getDocumentValidation;
 export const deleteOrder = activeApi.deleteOrder;
 export const listActs = activeApi.listActs;
 export const listGroups = activeApi.listGroups;

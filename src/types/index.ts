@@ -19,6 +19,19 @@ export type DocumentRecord = {
   quarterYear?: number | null;
 };
 
+export type DocumentValidationStatus = {
+  documentId: string;
+  projectId?: string | null;
+  type?: "ORDER" | "ACT" | null;
+  status: "pending" | "success" | "warning" | "error";
+  summary?: string | null;
+  errors: string[];
+  warnings: string[];
+  forwardedToReader: boolean;
+  validatedAt?: string | null;
+  updatedAt: string;
+};
+
 export type GroupRecord = {
   groupId: string;
   groupName?: string | null;

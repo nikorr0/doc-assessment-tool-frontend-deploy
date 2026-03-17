@@ -4,6 +4,7 @@ import type {
   DashboardInfographicsResponse,
   Project,
   DocumentRecord,
+  DocumentValidationStatus,
   GroupRecord,
   TemplateRecord,
   GroupTasks,
@@ -48,6 +49,13 @@ export async function uploadOrder(projectId: string, file: File): Promise<Docume
 
 export async function getOrder(projectId: string, orderId: string): Promise<DocumentRecord> {
   const res = await api.get(`/projects/${projectId}/orders/${orderId}`);
+  return res.data;
+}
+
+export async function getDocumentValidation(
+  documentId: string
+): Promise<DocumentValidationStatus> {
+  const res = await api.get(`/documents/${documentId}/validation`);
   return res.data;
 }
 

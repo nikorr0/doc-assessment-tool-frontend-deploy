@@ -1,5 +1,6 @@
 import { buildSeedState, type MockSeedState } from "../data/seed";
 import { deepClone } from "../utils/clone";
+import type { DocumentValidationStatus, DocumentType } from "../../types";
 
 export type InfographicsPollState = {
   attempts: number;
@@ -8,8 +9,24 @@ export type InfographicsPollState = {
   updatedAt: string;
 };
 
+export type DocumentValidationMockState = {
+  documentId: string;
+  projectId?: string | null;
+  type?: DocumentType | null;
+  finalStatus: Exclude<DocumentValidationStatus["status"], "pending">;
+  summary?: string | null;
+  errors: string[];
+  warnings: string[];
+  forwardedToReader: boolean;
+  pendingChecksRemaining: number;
+  validatedAt?: string | null;
+  updatedAt: string;
+  cleanupApplied: boolean;
+};
+
 export type MockDbState = MockSeedState & {
   infographicsPollByOrderAndYear: Record<string, InfographicsPollState>;
+  documentValidationById: Record<string, DocumentValidationMockState>;
 };
 
 function createInitialState(): MockDbState {
@@ -17,6 +34,7 @@ function createInitialState(): MockDbState {
   return {
     ...seed,
     infographicsPollByOrderAndYear: {},
+    documentValidationById: {},
   };
 }
 

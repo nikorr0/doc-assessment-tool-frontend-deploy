@@ -7,6 +7,7 @@ import type {
   DashboardInfographicsResponse,
   DashboardQuarterStat,
   DashboardStats,
+  DocumentValidationStatus,
   DocumentRecord,
   GroupRecord,
   GroupTasks,
@@ -14,7 +15,7 @@ import type {
   TaskRecord,
   TemplateRecord,
 } from "../../types";
-import { getDb, getOrderYearKey } from "../store/db";
+import { getDb, getOrderYearKey, type DocumentValidationMockState } from "../store/db";
 import { deepClone } from "../utils/clone";
 import { getMockScenario, withNetworkDelay } from "../utils/delay";
 import { nextId } from "../utils/id";
@@ -88,6 +89,75 @@ function toQuarterDeadline(quarter: number): string {
   return `${TASK_DEADLINE_YEAR}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T09:00:00.000Z`;
 }
 
+function buildValidationProfile(
+  fileName: string,
+  type: "ORDER" | "ACT"
+): Pick<DocumentValidationMockState, "finalStatus" | "summary" | "errors" | "warnings" | "forwardedToReader"> {
+  const normalized = fileName.trim().toLowerCase();
+  const isError =
+    normalized.includes("error")
+  if (isError) {
+    return {
+      finalStatus: "error",
+      summary: type === "ACT" ? "Акт не прошел валидацию" : "Приказ не прошел валидацию",
+      errors: [
+        "Обнаружены критические ошибки структуры документа.",
+        "Документ отклонен и не передан в обработку.",
+      ],
+      warnings: [],
+      forwardedToReader: false,
+    };
+  }
+
+  const isWarning =
+    normalized.includes("warn")
+  if (isWarning) {
+    return {
+      finalStatus: "warning",
+      summary:
+        type === "ACT"
+          ? "Акт загружен с предупреждениями"
+          : "Приказ загружен с предупреждениями",
+      errors: [],
+      warnings: [
+        "Для 2 группы отсутстуют заголовки таблицы, документ прочитан без их учета",
+        "Таблица 1, строка 2: в дате обнаружен лишний пробел перед годом, дата прочитана с его игнорированием",
+        "Таблица 1, строка 3: в дате обнаружен лишний пробел перед годом, дата прочитана с его игнорированием",
+        "Таблица 2, строка 4: строка-продолжение без ФИО отнесена к предыдущему сотруднику Иван Иванович Иванов",
+        "Для группы 3 руководитель Иван Иванович Иванов не найден среди сотрудников таблицы"
+      ],
+      forwardedToReader: true,
+    };
+  }
+
+  return {
+    finalStatus: "success",
+    summary: "Документ успешно прошел валидацию",
+    errors: [],
+    warnings: [],
+    forwardedToReader: true,
+  };
+}
+
+function createDocumentValidationState(record: DocumentRecord): DocumentValidationMockState {
+  const profile = buildValidationProfile(record.fileName, record.type);
+  const now = nowIso();
+  return {
+    documentId: record.documentId,
+    projectId: record.projectId,
+    type: record.type,
+    finalStatus: profile.finalStatus,
+    summary: profile.summary,
+    errors: profile.errors,
+    warnings: profile.warnings,
+    forwardedToReader: profile.forwardedToReader,
+    pendingChecksRemaining: 1 + Math.floor(Math.random() * 2),
+    validatedAt: null,
+    updatedAt: now,
+    cleanupApplied: false,
+  };
+}
+
 function ensureProject(projectId: string): Project {
   const db = getDb();
   const project = db.projects.find(item => item.id === projectId);
@@ -113,6 +183,68 @@ function ensureGroup(orderId: string, groupId: string): GroupRecord {
     throw new Error("Группа не найдена");
   }
   return group;
+}
+
+function findDocumentById(documentId: string): DocumentRecord | null {
+  const db = getDb();
+  for (const orders of Object.values(db.ordersByProjectId)) {
+    const order = orders.find(item => item.documentId === documentId);
+    if (order) {
+      return order;
+    }
+  }
+  for (const acts of Object.values(db.actsByOrderId)) {
+    const act = acts.find(item => item.documentId === documentId);
+    if (act) {
+      return act;
+    }
+  }
+  return null;
+}
+
+function dropValidationForOrder(orderId: string, keepOrderValidation = false): void {
+  const db = getDb();
+  if (!keepOrderValidation) {
+    delete db.documentValidationById[orderId];
+  }
+  const acts = db.actsByOrderId[orderId] ?? [];
+  acts.forEach(act => {
+    delete db.documentValidationById[act.documentId];
+  });
+}
+
+function removeDocumentFromStore(documentId: string): void {
+  const db = getDb();
+
+  for (const [projectId, orders] of Object.entries(db.ordersByProjectId)) {
+    const order = orders.find(item => item.documentId === documentId);
+    if (!order) {
+      continue;
+    }
+
+    db.ordersByProjectId[projectId] = orders.filter(item => item.documentId !== documentId);
+    dropValidationForOrder(documentId, true);
+    delete db.actsByOrderId[documentId];
+    delete db.groupsByOrderId[documentId];
+    delete db.templatesByOrderId[documentId];
+    delete db.tasksByOrderAndGroup[documentId];
+    delete db.infographicsByOrderAndYear[documentId];
+    Object.keys(db.infographicsPollByOrderAndYear).forEach(key => {
+      if (key.startsWith(`${documentId}::`)) {
+        delete db.infographicsPollByOrderAndYear[key];
+      }
+    });
+    return;
+  }
+
+  for (const [orderId, acts] of Object.entries(db.actsByOrderId)) {
+    if (!acts.some(item => item.documentId === documentId)) {
+      continue;
+    }
+    db.actsByOrderId[orderId] = acts.filter(item => item.documentId !== documentId);
+    delete db.documentValidationById[documentId];
+    return;
+  }
 }
 
 function getOrderTasks(orderId: string): TaskRecord[] {
@@ -428,6 +560,7 @@ export async function deleteProject(projectId: string): Promise<void> {
   ensureProject(projectId);
   const orders = db.ordersByProjectId[projectId] ?? [];
   orders.forEach(order => {
+    dropValidationForOrder(order.documentId);
     delete db.actsByOrderId[order.documentId];
     delete db.groupsByOrderId[order.documentId];
     delete db.templatesByOrderId[order.documentId];
@@ -468,6 +601,7 @@ export async function uploadOrder(projectId: string, file: File): Promise<Docume
     uploadedAt,
   };
   db.ordersByProjectId[projectId] = [order, ...(db.ordersByProjectId[projectId] ?? [])];
+  db.documentValidationById[order.documentId] = createDocumentValidationState(order);
 
   const groups = createStarterGroups(orderId);
   db.groupsByOrderId[orderId] = groups;
@@ -487,6 +621,68 @@ export async function getOrder(projectId: string, orderId: string): Promise<Docu
   return deepClone(ensureOrder(projectId, orderId));
 }
 
+export async function getDocumentValidation(
+  documentId: string
+): Promise<DocumentValidationStatus> {
+  await withNetworkDelay();
+  const db = getDb();
+  const existing = db.documentValidationById[documentId];
+  const state = existing ?? (() => {
+    const document = findDocumentById(documentId);
+    if (!document) {
+      throw new Error("Документ не найден");
+    }
+    const created = createDocumentValidationState(document);
+    created.pendingChecksRemaining = 0;
+    db.documentValidationById[documentId] = created;
+    return created;
+  })();
+
+  state.updatedAt = nowIso();
+  if (state.pendingChecksRemaining > 0) {
+    state.pendingChecksRemaining -= 1;
+    return {
+      documentId: state.documentId,
+      projectId: state.projectId,
+      type: state.type,
+      status: "pending",
+      summary: "Проверка документа выполняется",
+      errors: [],
+      warnings: [],
+      forwardedToReader: false,
+      validatedAt: null,
+      updatedAt: state.updatedAt,
+    };
+  }
+
+  if (!state.validatedAt) {
+    state.validatedAt = nowIso();
+  }
+  if (state.finalStatus === "warning") {
+    const document = findDocumentById(documentId);
+    if (document && document.status !== "validation_warning") {
+      document.status = "validation_warning";
+    }
+  }
+  if (state.finalStatus === "error" && !state.cleanupApplied) {
+    state.cleanupApplied = true;
+    removeDocumentFromStore(documentId);
+  }
+
+  return {
+    documentId: state.documentId,
+    projectId: state.projectId,
+    type: state.type,
+    status: state.finalStatus,
+    summary: state.summary,
+    errors: [...state.errors],
+    warnings: [...state.warnings],
+    forwardedToReader: state.forwardedToReader,
+    validatedAt: state.validatedAt,
+    updatedAt: state.updatedAt,
+  };
+}
+
 export async function deleteOrder(projectId: string, orderId: string): Promise<void> {
   await withNetworkDelay();
   const db = getDb();
@@ -494,6 +690,7 @@ export async function deleteOrder(projectId: string, orderId: string): Promise<v
   db.ordersByProjectId[projectId] = (db.ordersByProjectId[projectId] ?? []).filter(
     order => order.documentId !== orderId
   );
+  dropValidationForOrder(orderId);
   delete db.actsByOrderId[orderId];
   delete db.groupsByOrderId[orderId];
   delete db.templatesByOrderId[orderId];
@@ -542,6 +739,7 @@ export async function uploadAct(
     existing.status = "processed";
     existing.uploadedAt = now;
     existing.type = "ACT";
+    db.documentValidationById[existing.documentId] = createDocumentValidationState(existing);
     touchGroupTaskAsInProgress(orderId, groupId);
     return deepClone(existing);
   }
@@ -558,6 +756,7 @@ export async function uploadAct(
     quarterYear,
   };
   db.actsByOrderId[orderId] = [record, ...acts];
+  db.documentValidationById[record.documentId] = createDocumentValidationState(record);
   touchGroupTaskAsInProgress(orderId, groupId);
   return deepClone(record);
 }
@@ -570,6 +769,7 @@ export async function deleteAct(projectId: string, orderId: string, actId: strin
   db.actsByOrderId[orderId] = (db.actsByOrderId[orderId] ?? []).filter(
     act => act.documentId !== actId
   );
+  delete db.documentValidationById[actId];
   if (db.actsByOrderId[orderId].length === initialLength) {
     throw new Error("Акт не найден");
   }

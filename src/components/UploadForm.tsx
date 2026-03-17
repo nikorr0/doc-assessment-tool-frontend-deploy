@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { uploadAct, uploadOrder } from "../api/projects";
+import { getDocumentValidation, uploadAct, uploadOrder } from "../api/projects";
 import { getApiErrorMessage } from "../utils/error";
 import { sha256FileHex } from "../utils/hash";
-import type { DocumentRecord } from "../types";
+import type { DocumentRecord, DocumentValidationStatus } from "../types";
 
 type Props = {
   projectId: string;
@@ -12,13 +12,105 @@ type Props = {
   groupId?: string;
   quarterYear?: number;
   onUploaded?: (record: DocumentRecord) => void;
+  onValidationResolved?: (record: DocumentRecord, validation: DocumentValidationStatus) => void;
 };
 
-export default function UploadForm({ projectId, mode, orderId, groupId, quarterYear, onUploaded }: Props) {
+const VALIDATION_POLL_INTERVAL_MS = 1500;
+const VALIDATION_POLL_MAX_ATTEMPTS = 40;
+
+type ValidationBanner = {
+  tone: "info" | "success" | "warning" | "error";
+  text: string;
+};
+
+type ValidationModal = {
+  tone: "warning" | "error";
+  title: string;
+  issues: string[];
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export default function UploadForm({
+  projectId,
+  mode,
+  orderId,
+  groupId,
+  quarterYear,
+  onUploaded,
+  onValidationResolved,
+}: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationBanner, setValidationBanner] = useState<ValidationBanner | null>(null);
+  const [validationModal, setValidationModal] = useState<ValidationModal | null>(null);
+
+  async function waitForValidation(documentId: string): Promise<DocumentValidationStatus> {
+    let latest: DocumentValidationStatus | null = null;
+    for (let attempt = 0; attempt < VALIDATION_POLL_MAX_ATTEMPTS; attempt += 1) {
+      const current = await getDocumentValidation(documentId);
+      latest = current;
+      if (current.status !== "pending") {
+        return current;
+      }
+      await sleep(VALIDATION_POLL_INTERVAL_MS);
+    }
+    if (latest) {
+      return latest;
+    }
+    return getDocumentValidation(documentId);
+  }
+
+  async function monitorValidation(record: DocumentRecord): Promise<void> {
+    setValidationBanner({ tone: "info", text: "Проверяем документ..." });
+    const validation = await waitForValidation(record.documentId);
+    onValidationResolved?.(record, validation);
+
+    if (validation.status === "error") {
+      const issues = validation.errors.length > 0 ? validation.errors : [validation.summary || "Обнаружены ошибки валидации."];
+      setValidationModal({
+        tone: "error",
+        title: "Документ не прошел валидацию",
+        issues,
+      });
+      setValidationBanner({ tone: "error", text: "Документ отклонен валидатором." });
+      return;
+    }
+
+    if (validation.status === "warning") {
+      const issues =
+        validation.warnings.length > 0
+          ? validation.warnings
+          : [validation.summary || "В документе есть предупреждения."];
+      setValidationModal({
+        tone: "warning",
+        title: "Документ загружен с предупреждениями",
+        issues,
+      });
+      setValidationBanner({
+        tone: "warning",
+        text: "Проверка завершена с предупреждениями. Документ передан в обработку.",
+      });
+      return;
+    }
+
+    if (validation.status === "success") {
+      setValidationBanner({
+        tone: "success",
+        text: "Ошибок не найдено. Документ передан в обработку.",
+      });
+      return;
+    }
+
+    setValidationBanner({
+      tone: "info",
+      text: "Проверка документа выполняется дольше обычного. Документ остается в обработке.",
+    });
+  }
 
   async function handleChoose(e: ChangeEvent<HTMLInputElement>) {
     setError(null);
@@ -38,6 +130,7 @@ export default function UploadForm({ projectId, mode, orderId, groupId, quarterY
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setValidationBanner(null);
     if (!file) {
       setError("Выберите файл .docx");
       return;
@@ -62,6 +155,13 @@ export default function UploadForm({ projectId, mode, orderId, groupId, quarterY
           ? await uploadOrder(projectId, file)
           : await uploadAct(projectId, orderId!, file, groupId!, quarterYear!);
       onUploaded?.(record);
+      void monitorValidation(record).catch((monitorError: unknown) => {
+        console.error(monitorError);
+        setValidationBanner({
+          tone: "warning",
+          text: "Документ загружен, но не удалось получить результат валидации.",
+        });
+      });
       setFile(null);
       setHash(null);
     } catch (err: unknown) {
@@ -109,6 +209,33 @@ export default function UploadForm({ projectId, mode, orderId, groupId, quarterY
       </div>
 
       {error && <div style={{ color: "crimson" }}>{error}</div>}
+
+      {validationBanner && (
+        <div className={`validation-banner validation-banner--${validationBanner.tone}`}>
+          {validationBanner.text}
+        </div>
+      )}
+
+      {validationModal && (
+        <div className="modal-overlay" onClick={() => setValidationModal(null)}>
+          <div
+            className={`modal-content validation-modal validation-modal--${validationModal.tone}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3>{validationModal.title}</h3>
+            <ul className="validation-issues-list">
+              {validationModal.issues.map((issue, idx) => (
+                <li key={`${idx}-${issue}`}>{issue}</li>
+              ))}
+            </ul>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+              <button type="button" className="secondary" onClick={() => setValidationModal(null)}>
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

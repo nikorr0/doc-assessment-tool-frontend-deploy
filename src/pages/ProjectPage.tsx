@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import UploadForm from "../components/UploadForm";
 import { getProject, listOrders, deleteOrder } from "../api/projects";
-import type { DocumentRecord, Project } from "../types";
+import type { DocumentRecord, DocumentValidationStatus, Project } from "../types";
 
 type LoadState = "idle" | "loading" | "error";
 
@@ -53,6 +53,26 @@ export default function ProjectPage() {
     setOrders(prev => [record, ...prev.filter(o => o.documentId !== record.documentId)]);
   }
 
+  const handleOrderValidationResolved = useCallback(
+    (record: DocumentRecord, validation: DocumentValidationStatus) => {
+      if (validation.status === "error") {
+        setOrders((prev) => prev.filter((order) => order.documentId !== record.documentId));
+        return;
+      }
+
+      if (validation.status === "warning") {
+        setOrders((prev) =>
+          prev.map((order) =>
+            order.documentId === record.documentId
+              ? { ...order, status: "validation_warning" }
+              : order
+          )
+        );
+      }
+    },
+    []
+  );
+
   async function handleDelete() {
     if (!orderToDelete || !projectId) return;
     setDeleting(true);
@@ -90,7 +110,12 @@ export default function ProjectPage() {
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Загрузить приказ</h3>
         <p style={{ marginTop: 4, color: "#64748b" }}>Поддерживаются только файлы .docx</p>
-        <UploadForm projectId={projectId} mode="ORDER" onUploaded={handleOrderUploaded} />
+        <UploadForm
+          projectId={projectId}
+          mode="ORDER"
+          onUploaded={handleOrderUploaded}
+          onValidationResolved={handleOrderValidationResolved}
+        />
       </div>
 
       <div className="card">
