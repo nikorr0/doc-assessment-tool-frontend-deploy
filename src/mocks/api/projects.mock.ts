@@ -28,17 +28,46 @@ const QUARTER_END_DAY: Record<number, number> = {
   3: 30,
   4: 31,
 };
+const COMPLETED_BY_QUARTER: Record<number, number> = {
+  1: 10,
+  2: 6,
+  3: 3,
+  4: 1,
+};
+const UNVERIFIED_BY_QUARTER: Record<number, number> = {
+  1: 1,
+  2: 2,
+  3: 2,
+  4: 1,
+};
+const ACT_LOADED_QUARTERS_BY_GROUP = [
+  [1, 2, 3, 4],
+  [1, 2, 3],
+  [1, 2, 3],
+  [1, 2],
+  [1, 2],
+  [1],
+  [1],
+] as const;
 
 const STARTER_GROUPS = [
-  { id: "1", name: "Группа 1. Иван Иванович Иванов" },
-  { id: "2", name: "Группа 2. Петр Петрович Петров" },
-  { id: "3", name: "Группа 3. Семен Семенович Семенов" },
+  { id: "1", name: "Группа 1. Август Августович Августов" },
+  { id: "2", name: "Группа 2. Геннадий Геннадьевич Геннадьев" },
+  { id: "3", name: "Группа 3. Захар Захарович Захаров" },
+  { id: "4", name: "Группа 4. Лаврентий Лаврентьевич Лаврентьев" },
+  { id: "5", name: "Группа 5. Оскар Оскарович Оскаров" },
+  { id: "6", name: "Группа 6. Савелий Савельевич Савельев" },
+  { id: "7", name: "Группа 7. Фаддей Фаддеевич Фаддеев" },
 ] as const;
 
 const STARTER_PEOPLE = [
-  ["Иван Иванович Иванов", "Алексей Алексеевич Алексеев", "Сергей Сергеевич Сергеев"],
-  ["Петр Петрович Петров", "Николай Николаевич Николаев", "Дмитрий Дмитриевич Дмитриев"],
-  ["Семен Семенович Семенов", "Егор Егорович Егоров", "Виктор Викторович Викторов"],
+  ["Август Августович Августов", "Богдан Богданович Богданов", "Вадим Вадимович Вадимов"],
+  ["Геннадий Геннадьевич Геннадьев", "Демид Демидович Демидов", "Елисей Елисеевич Елисеев"],
+  ["Захар Захарович Захаров", "Иларион Иларионович Иларионов", "Климент Климентович Климентов"],
+  ["Лаврентий Лаврентьевич Лаврентьев", "Мирон Миронович Миронов", "Назар Назарович Назаров"],
+  ["Оскар Оскарович Оскаров", "Платон Платонович Платонов", "Родион Родионович Родионов"],
+  ["Савелий Савельевич Савельев", "Тарас Тарасович Тарасов", "Устин Устинович Устинов"],
+  ["Фаддей Фаддеевич Фаддеев", "Харитон Харитонович Харитонов", "Эмиль Эмильевич Эмильев"],
 ] as const;
 
 const STARTER_TASKS = [
@@ -123,8 +152,8 @@ function buildValidationProfile(
         "Для 2 группы отсутстуют заголовки таблицы, документ прочитан без их учета",
         "Таблица 1, строка 2: в дате обнаружен лишний пробел перед годом, дата прочитана с его игнорированием",
         "Таблица 1, строка 3: в дате обнаружен лишний пробел перед годом, дата прочитана с его игнорированием",
-        "Таблица 2, строка 4: строка-продолжение без ФИО отнесена к предыдущему сотруднику Иван Иванович Иванов",
-        "Для группы 3 руководитель Иван Иванович Иванов не найден среди сотрудников таблицы"
+        "Таблица 2, строка 4: строка-продолжение без ФИО отнесена к предыдущему сотруднику Август Августович Августов",
+        "Для группы 3 руководитель Захар Захарович Захаров не найден среди сотрудников таблицы"
       ],
       forwardedToReader: true,
     };
@@ -482,21 +511,44 @@ function createStarterGroups(orderId: string): GroupRecord[] {
 
 function createStarterTasks(groupId: string, groupIndex: number): TaskRecord[] {
   const tasks: TaskRecord[] = [];
-  for (let index = 0; index < 10; index += 1) {
-    const quarter = (index % 4) + 1;
-    tasks.push({
-      taskId: taskIdSequence++,
-      groupId,
-      fullName: STARTER_PEOPLE[groupIndex][index % STARTER_PEOPLE[groupIndex].length],
-      taskText: `${STARTER_TASKS[index]} №${index + 1}`,
-      units: "публикация",
-      taskReport: `Отчет по задаче №${index + 1}`,
-      deadline: toQuarterDeadline(quarter),
-      status: Array.from(VALID_TASK_STATUSES)[index % VALID_TASK_STATUSES.size],
-      isProfessionalChecked: index % 2 === 0,
-    });
+  let taskNumber = 1;
+  for (let quarter = 1; quarter <= 4; quarter += 1) {
+    for (let quarterTaskIndex = 0; quarterTaskIndex < 10; quarterTaskIndex += 1) {
+      tasks.push({
+        taskId: taskIdSequence++,
+        groupId,
+        fullName:
+          STARTER_PEOPLE[groupIndex][(quarterTaskIndex + groupIndex) % STARTER_PEOPLE[groupIndex].length],
+        taskText: `${STARTER_TASKS[(taskNumber - 1) % STARTER_TASKS.length]} №${taskNumber}`,
+        units: "публикация",
+        taskReport: `Отчет по задаче №${taskNumber}`,
+        deadline: toQuarterDeadline(quarter),
+        status:
+          quarterTaskIndex < (COMPLETED_BY_QUARTER[quarter] ?? 0) ? "Выполнено" : "Не выполнено",
+        isProfessionalChecked: quarterTaskIndex >= (UNVERIFIED_BY_QUARTER[quarter] ?? 0),
+      });
+      taskNumber += 1;
+    }
   }
   return tasks;
+}
+
+function createStarterActs(orderId: string, projectId: string, groups: GroupRecord[]): DocumentRecord[] {
+  return groups.flatMap((group, groupIndex) => {
+    const loadedQuarters =
+      ACT_LOADED_QUARTERS_BY_GROUP[groupIndex % ACT_LOADED_QUARTERS_BY_GROUP.length];
+    return loadedQuarters.map(quarter => ({
+      documentId: `${orderId}-act-${groupIndex + 1}-${quarter}`,
+      projectId,
+      type: "ACT",
+      fileName: `Акт_${groupIndex + 1}_${quarter}кв.docx`,
+      fileRef: `/mock-files/acts/${orderId}-${group.groupId}-q${quarter}.docx`,
+      status: "processed",
+      uploadedAt: nowIso(),
+      groupId: group.groupId,
+      quarterYear: quarter,
+    }));
+  });
 }
 
 function touchGroupTaskAsInProgress(orderId: string, groupId: string): void {
@@ -605,7 +657,7 @@ export async function uploadOrder(projectId: string, file: File): Promise<Docume
 
   const groups = createStarterGroups(orderId);
   db.groupsByOrderId[orderId] = groups;
-  db.actsByOrderId[orderId] = [];
+  db.actsByOrderId[orderId] = createStarterActs(orderId, projectId, groups);
   db.templatesByOrderId[orderId] = [];
   db.tasksByOrderAndGroup[orderId] = {};
   groups.forEach((group, index) => {

@@ -17,7 +17,6 @@ export type MockSeedState = {
   infographicsByOrderAndYear: Record<string, Record<string, DashboardInfographicsResponse>>;
 };
 
-const STATUS_ROTATION = ["Не выполнено", "В работе", "Выполнено"] as const;
 const UNIT_ROTATION = ["публикация", "доклад", "мероприятие", "исследование"] as const;
 const TASK_TEMPLATES = [
   "Подготовка публикации по результатам деятельности за квартал",
@@ -38,22 +37,91 @@ const QUARTER_END_DAY: Record<number, number> = {
   3: 30,
   4: 31,
 };
+const COMPLETED_BY_QUARTER: Record<number, number> = {
+  1: 10,
+  2: 6,
+  3: 3,
+  4: 1,
+};
+const UNVERIFIED_BY_QUARTER: Record<number, number> = {
+  1: 1,
+  2: 2,
+  3: 2,
+  4: 1,
+};
+const ACT_LOADED_QUARTERS_BY_GROUP = [
+  [1, 2, 3, 4],
+  [1, 2, 3],
+  [1, 2, 3],
+  [1, 2],
+  [1, 2],
+  [1],
+  [1],
+] as const;
 
 const GROUP_DEFINITIONS = [
   {
     id: "1",
-    name: "Группа 1. Иван Иванович Иванов",
-    people: ["Иван Иванович Иванов", "Алексей Алексеевич Алексеев", "Сергей Сергеевич Сергеев"],
+    name: "Группа 1. Август Августович Августов",
+    people: [
+      "Август Августович Августов",
+      "Богдан Богданович Богданов",
+      "Вадим Вадимович Вадимов",
+    ],
   },
   {
     id: "2",
-    name: "Группа 2. Петр Петрович Петров",
-    people: ["Петр Петрович Петров", "Николай Николаевич Николаев", "Дмитрий Дмитриевич Дмитриев"],
+    name: "Группа 2. Геннадий Геннадьевич Геннадьев",
+    people: [
+      "Геннадий Геннадьевич Геннадьев",
+      "Демид Демидович Демидов",
+      "Елисей Елисеевич Елисеев",
+    ],
   },
   {
     id: "3",
-    name: "Группа 3. Семен Семенович Семенов",
-    people: ["Семен Семенович Семенов", "Егор Егорович Егоров", "Виктор Викторович Викторов"],
+    name: "Группа 3. Захар Захарович Захаров",
+    people: [
+      "Захар Захарович Захаров",
+      "Иларион Иларионович Иларионов",
+      "Климент Климентович Климентов",
+    ],
+  },
+  {
+    id: "4",
+    name: "Группа 4. Лаврентий Лаврентьевич Лаврентьев",
+    people: [
+      "Лаврентий Лаврентьевич Лаврентьев",
+      "Мирон Миронович Миронов",
+      "Назар Назарович Назаров",
+    ],
+  },
+  {
+    id: "5",
+    name: "Группа 5. Оскар Оскарович Оскаров",
+    people: [
+      "Оскар Оскарович Оскаров",
+      "Платон Платонович Платонов",
+      "Родион Родионович Родионов",
+    ],
+  },
+  {
+    id: "6",
+    name: "Группа 6. Савелий Савельевич Савельев",
+    people: [
+      "Савелий Савельевич Савельев",
+      "Тарас Тарасович Тарасов",
+      "Устин Устинович Устинов",
+    ],
+  },
+  {
+    id: "7",
+    name: "Группа 7. Фаддей Фаддеевич Фаддеев",
+    people: [
+      "Фаддей Фаддеевич Фаддеев",
+      "Харитон Харитонович Харитонов",
+      "Эмиль Эмильевич Эмильев",
+    ],
   },
 ] as const;
 
@@ -77,19 +145,22 @@ function taskQuarterDeadline(quarter: number): string {
 
 function createTasksForGroup(groupId: string, people: readonly string[], seedShift: number): TaskRecord[] {
   const tasks: TaskRecord[] = [];
-  for (let i = 0; i < 10; i += 1) {
-    const quarter = (i % 4) + 1;
-    tasks.push({
-      taskId: taskIdSequence++,
-      groupId,
-      fullName: people[i % people.length],
-      taskText: `${TASK_TEMPLATES[i % TASK_TEMPLATES.length]} №${i + 1}`,
-      units: UNIT_ROTATION[i % UNIT_ROTATION.length],
-      taskReport: `Отчет по задаче ${i + 1}`,
-      deadline: taskQuarterDeadline(quarter),
-      status: STATUS_ROTATION[(i + seedShift) % STATUS_ROTATION.length],
-      isProfessionalChecked: i % 2 === 0,
-    });
+  let taskNumber = 1;
+  for (let quarter = 1; quarter <= 4; quarter += 1) {
+    for (let quarterTaskIndex = 0; quarterTaskIndex < 10; quarterTaskIndex += 1) {
+      tasks.push({
+        taskId: taskIdSequence++,
+        groupId,
+        fullName: people[(quarterTaskIndex + seedShift) % people.length],
+        taskText: `${TASK_TEMPLATES[(taskNumber - 1) % TASK_TEMPLATES.length]} №${taskNumber}`,
+        units: UNIT_ROTATION[(taskNumber - 1) % UNIT_ROTATION.length],
+        taskReport: `Отчет по задаче ${taskNumber}`,
+        deadline: taskQuarterDeadline(quarter),
+        status: quarterTaskIndex < (COMPLETED_BY_QUARTER[quarter] ?? 0) ? "Выполнено" : "Не выполнено",
+        isProfessionalChecked: quarterTaskIndex >= (UNVERIFIED_BY_QUARTER[quarter] ?? 0),
+      });
+      taskNumber += 1;
+    }
   }
   return tasks;
 }
@@ -112,10 +183,10 @@ function createOrderBundle(projectId: string, orderIndex: number, createdAt: str
     createdAt,
   }));
 
-  const quarterPair = orderIndex % 2 === 0 ? [3, 4] : [1, 2];
-  const acts: DocumentRecord[] = groups.flatMap((group, groupIndex) =>
-    quarterPair.map((quarter, quarterIndex) => {
-      const actYear = quarter <= 2 ? 2026 : 2026;
+  const acts: DocumentRecord[] = groups.flatMap((group, groupIndex) => {
+    const loadedQuarters =
+      ACT_LOADED_QUARTERS_BY_GROUP[groupIndex % ACT_LOADED_QUARTERS_BY_GROUP.length];
+    return loadedQuarters.map((quarter, quarterIndex) => {
       return {
         documentId: `${orderId}-act-${groupIndex + 1}-${quarter}`,
         projectId,
@@ -123,12 +194,12 @@ function createOrderBundle(projectId: string, orderIndex: number, createdAt: str
         fileName: `Акт_${groupIndex + 1}_${quarter}кв.docx`,
         fileRef: `/mock-files/acts/${orderId}-${group.groupId}-q${quarter}.docx`,
         status: "processed",
-        uploadedAt: formatIsoDate(actYear, quarterToMonth(quarter), 5 + quarterIndex),
+        uploadedAt: formatIsoDate(2026, quarterToMonth(quarter), 5 + quarterIndex),
         groupId: group.groupId,
         quarterYear: quarter,
       };
-    })
-  );
+    });
+  });
 
   const templates: TemplateRecord[] = groups.slice(0, 2).map((group, groupIndex) => ({
     id: `${orderId}-template-${groupIndex + 1}`,
