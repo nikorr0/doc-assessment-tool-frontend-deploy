@@ -1112,7 +1112,7 @@ export default function DashboardPage() {
                             borderWidth: 2,
                             gapWidth: 2,
                           },
-                          colorSaturation: [0.35, 0.75],
+                          colorSaturation: [0.35, 0.55],
                           upperLabel: {
                             show: true,
                             color: "#0f172a",
@@ -1125,7 +1125,7 @@ export default function DashboardPage() {
                             borderWidth: 1,
                             gapWidth: 1,
                           },
-                          colorSaturation: [0.35, 0.75],
+                          colorSaturation: [0.35, 0.55],
                         },
                       ],
                       data: groupPersonTreemapData,
