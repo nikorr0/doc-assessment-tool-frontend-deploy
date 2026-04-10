@@ -53,11 +53,31 @@ const DASHBOARD_CHART_TITLES: Record<DashboardChartId, string> = {
 };
 
 const QUARTER_ACT_COLORS: Record<number, string> = {
-  1: "#22c55e",
-  2: "#3b82f6",
-  3: "#f59e0b",
-  4: "#8b5cf6",
+  1: "#0D41E1",
+  2: "#0C63E7",
+  3: "#0A85ED",
+  4: "#09A6F3",
 };
+
+const QUARTER_GAUGE_LEGEND_ITEMS = [
+  { color: "#22c55e", label: "95% и выше" },
+  { color: "#f97316", label: "от 51% до 95%" },
+  { color: "#ef4444", label: "от 0% до 50%" },
+] as const;
+
+const GROUP_PERSON_TREEMAP_COLORS = [
+  "#00AEFF",
+  "#00A7F4",
+  "#009FE8",
+  "#0899DC",
+  "#008FD1",
+] as const;
+
+const ARTICLE_SANKEY_LEVEL_COLORS = [
+  "#0C85F5",
+  "#0DCBFF",
+  "#00E8DC",
+] as const;
 
 function resolveGroupLabel(group: DashboardGroupStat) {
   return group.groupName || group.groupId;
@@ -816,129 +836,194 @@ export default function DashboardPage() {
 
       case "quarter-gauge":
         return (
-          <div style={chartContainerStyle}>
-            <ReactECharts
-              style={{ height: chartHeight, width: "100%" }}
-              option={{
-                tooltip: {
-                  trigger: "item",
-                  formatter: (params: {
-                    seriesName?: string;
-                    data?: {
-                      quarter?: number;
-                      completionRate?: number;
-                      isPlaceholder?: boolean;
-                    };
-                  }) => {
-                    if (params.seriesName !== "Кварталы" || params.data?.isPlaceholder) return "";
-                    const quarter = params.data?.quarter ?? "—";
-                    const completionRate = params.data?.completionRate ?? 0;
-                    const quarterNumber = typeof quarter === "number" ? quarter : 0;
-                    const groupRows = quarterGaugeGroupBreakdown.get(quarterNumber) ?? [];
-                    const groups = groupRows
-                      .map(group => `${formatGroupLabel(group.label)}: ${group.completionRate}%`)
-                      .join("<br/>");
-                    return `Квартал ${quarter}<br/>Выполнение: ${completionRate}%${
-                      groups ? `<br/><br/>По группам:<br/>${groups}` : ""
-                    }`;
-                  },
-                },
-                series: [
-                  {
-                    name: "Кварталы",
-                    type: "pie",
-                    radius: isPrimary ? ["60%", "98%"] : ["60%", "98%"],
-                    center: isPrimary ? ["50%", "62%"] : ["50%", "62%"],
-                    startAngle: 180,
-                    clockwise: true,
-                    avoidLabelOverlap: false,
-                    itemStyle: {
-                      borderColor: "#ffffff",
-                      borderWidth: 2,
-                    },
-                    label: {
-                      show: true,
-                      position: isSingleGroupSelected ? "outside" : "inside",
-                      color: "#0f172a",
-                      fontWeight: 600,
-                      fontSize: isPrimary ? 12 : 12,
-                      formatter: (params: {
-                        data?: { quarter?: number; completionRate?: number; isPlaceholder?: boolean };
-                      }) => {
-                        if (params.data?.isPlaceholder || !params.data?.quarter) return "";
-                        const quarterLabel = `К${params.data.quarter}`;
-                        if (!isSingleGroupSelected) {
-                          return quarterLabel;
-                        }
-                        const completionRate = params.data.completionRate ?? 0;
-                        return `${quarterLabel}: ${completionRate}%`;
-                      },
-                    },
-                    labelLine: { show: isSingleGroupSelected, length: 10, length2: 8 },
-                    data: [
-                      ...quarterGaugeData.map(item => ({
-                        value: 1,
-                        quarter: item.quarter,
-                        completionRate: item.completionRate,
-                        itemStyle: { color: item.color },
-                      })),
-                      {
-                        value: 4,
-                        isPlaceholder: true,
-                        quarter: 0,
-                        completionRate: 0,
-                        itemStyle: {
-                          color: "rgba(0,0,0,0)",
-                          borderColor: "rgba(0,0,0,0)",
-                          borderWidth: 0,
-                        },
-                        label: { show: false },
-                        tooltip: { show: false },
-                        emphasis: { disabled: true },
-                      },
-                    ],
-                  },
-                  {
-                    name: "Текущий квартал",
-                    type: "gauge",
-                    min: 0,
-                    max: 4,
-                    startAngle: 180,
-                    endAngle: 0,
-                    center: isPrimary ? ["50%", "62%"] : ["50%", "62%"],
-                    radius: isPrimary ? "98%" : "98%",
-                    pointer: {
-                      show: true,
-                      length: "80%",
-                      width: 6,
-                      itemStyle: { color: "#111827" },
-                    },
-                    anchor: {
-                      show: true,
-                      showAbove: true,
-                      size: 10,
-                      itemStyle: { color: "#111827" },
-                    },
-                    progress: { show: false },
-                    axisLine: { show: false, lineStyle: { width: 0 } },
-                    axisTick: { show: false },
-                    splitLine: { show: false },
-                    axisLabel: { show: false },
-                    title: { show: false },
-                    detail: {
-                      show: true,
-                      offsetCenter: isPrimary ? [0, "38%"] : [0, "38%"],
-                      color: "#0f172a",
-                      fontSize: isPrimary ? 13 : 13,
-                      fontWeight: 600,
-                      formatter: `Текущий квартал ${currentYear} года: ${currentQuarter}`,
-                    },
-                    data: [{ value: currentQuarterGaugeValue }],
-                    tooltip: { show: false },
-                  },
-                ],
+          <div style={{ ...chartContainerStyle, alignItems: "stretch", justifyContent: "flex-start" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                minWidth: isPrimary ? 240 : 180,
+                maxWidth: isPrimary ? 280 : 210,
+                marginRight: isPrimary ? 20 : 12,
               }}
-            />
+            >
+              <div
+                style={{
+                  width: "100%",
+                  padding: isPrimary ? "12px 10px" : "10px 8px",
+                  borderRadius: 10,
+                  background: "rgba(148, 163, 184, 0.08)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: isPrimary ? 13 : 12,
+                    fontWeight: 600,
+                    color: "#0f172a",
+                    marginBottom: 8,
+                  }}
+                >
+                  Процент выполнения задач
+                </div>
+                <ul
+                  style={{
+                    listStyle: "none",
+                    margin: 0,
+                    padding: 0,
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  {QUARTER_GAUGE_LEGEND_ITEMS.map(item => (
+                    <li
+                      key={item.label}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        color: "#334155",
+                        fontSize: isPrimary ? 13 : 12,
+                      }}
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: 11,
+                          height: 11,
+                          borderRadius: 999,
+                          backgroundColor: item.color,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span>{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ReactECharts
+                style={{ height: chartHeight, width: "100%" }}
+                option={{
+                  tooltip: {
+                    trigger: "item",
+                    formatter: (params: {
+                      seriesName?: string;
+                      data?: {
+                        quarter?: number;
+                        completionRate?: number;
+                        isPlaceholder?: boolean;
+                      };
+                    }) => {
+                      if (params.seriesName !== "Кварталы" || params.data?.isPlaceholder) return "";
+                      const quarter = params.data?.quarter ?? "—";
+                      const completionRate = params.data?.completionRate ?? 0;
+                      const quarterNumber = typeof quarter === "number" ? quarter : 0;
+                      const groupRows = quarterGaugeGroupBreakdown.get(quarterNumber) ?? [];
+                      const groups = groupRows
+                        .map(group => `${formatGroupLabel(group.label)}: ${group.completionRate}%`)
+                        .join("<br/>");
+                      return `Квартал ${quarter}<br/>Выполнение: ${completionRate}%${
+                        groups ? `<br/><br/>По группам:<br/>${groups}` : ""
+                      }`;
+                    },
+                  },
+                  series: [
+                    {
+                      name: "Кварталы",
+                      type: "pie",
+                      radius: isPrimary ? ["60%", "98%"] : ["60%", "98%"],
+                      center: isPrimary ? ["50%", "62%"] : ["50%", "62%"],
+                      startAngle: 180,
+                      clockwise: true,
+                      avoidLabelOverlap: false,
+                      itemStyle: {
+                        borderColor: "#ffffff",
+                        borderWidth: 2,
+                      },
+                      label: {
+                        show: true,
+                        position: isSingleGroupSelected ? "outside" : "inside",
+                        color: "#0f172a",
+                        fontWeight: 600,
+                        fontSize: isPrimary ? 12 : 12,
+                        formatter: (params: {
+                          data?: { quarter?: number; completionRate?: number; isPlaceholder?: boolean };
+                        }) => {
+                          if (params.data?.isPlaceholder || !params.data?.quarter) return "";
+                          const quarterLabel = `К${params.data.quarter}`;
+                          if (!isSingleGroupSelected) {
+                            return quarterLabel;
+                          }
+                          const completionRate = params.data.completionRate ?? 0;
+                          return `${quarterLabel}: ${completionRate}%`;
+                        },
+                      },
+                      labelLine: { show: isSingleGroupSelected, length: 10, length2: 8 },
+                      data: [
+                        ...quarterGaugeData.map(item => ({
+                          value: 1,
+                          quarter: item.quarter,
+                          completionRate: item.completionRate,
+                          itemStyle: { color: item.color },
+                        })),
+                        {
+                          value: 4,
+                          isPlaceholder: true,
+                          quarter: 0,
+                          completionRate: 0,
+                          itemStyle: {
+                            color: "rgba(0,0,0,0)",
+                            borderColor: "rgba(0,0,0,0)",
+                            borderWidth: 0,
+                          },
+                          label: { show: false },
+                          tooltip: { show: false },
+                          emphasis: { disabled: true },
+                        },
+                      ],
+                    },
+                    {
+                      name: "Текущий квартал",
+                      type: "gauge",
+                      min: 0,
+                      max: 4,
+                      startAngle: 180,
+                      endAngle: 0,
+                      center: isPrimary ? ["50%", "62%"] : ["50%", "62%"],
+                      radius: isPrimary ? "98%" : "98%",
+                      pointer: {
+                        show: true,
+                        length: "80%",
+                        width: 6,
+                        itemStyle: { color: "#111827" },
+                      },
+                      anchor: {
+                        show: true,
+                        showAbove: true,
+                        size: 10,
+                        itemStyle: { color: "#111827" },
+                      },
+                      progress: { show: false },
+                      axisLine: { show: false, lineStyle: { width: 0 } },
+                      axisTick: { show: false },
+                      splitLine: { show: false },
+                      axisLabel: { show: false },
+                      title: { show: false },
+                      detail: {
+                        show: true,
+                        offsetCenter: isPrimary ? [0, "38%"] : [0, "38%"],
+                        color: "#0f172a",
+                        fontSize: isPrimary ? 13 : 13,
+                        fontWeight: 600,
+                        formatter: `Текущий квартал ${currentYear} года: ${currentQuarter}`,
+                      },
+                      data: [{ value: currentQuarterGaugeValue }],
+                      tooltip: { show: false },
+                    },
+                  ],
+                }}
+              />
+            </div>
           </div>
         );
 
@@ -969,7 +1054,15 @@ export default function DashboardPage() {
                       }: ${isQuarterLoaded ? "акт загружен" : "акт не загружен"}`;
                     },
                   },
-                  legend: { top: isPrimary ? 0 : 4, left: "center" },
+                  legend: {
+                    top: isPrimary ? 0 : 4,
+                    left: "center",
+                    data: QUARTERS.map(quarter => ({
+                      name: `Квартал ${quarter}`,
+                      icon: "circle",
+                      itemStyle: { color: QUARTER_ACT_COLORS[quarter] },
+                    })),
+                  },
                   polar: {
                     center: ["50%", isPrimary ? "50%" : "52%"],
                     radius: isPrimary ? "84%" : "70%",
@@ -1080,18 +1173,20 @@ export default function DashboardPage() {
                       type: "treemap",
                       roam: false,
                       nodeClick: false,
+                      color: [...GROUP_PERSON_TREEMAP_COLORS],
                       colorMappingBy: "index",
                       breadcrumb: { show: false },
                       upperLabel: {
                         show: true,
                         height: isPrimary ? 24 : 20,
-                        color: "#0f172a",
+                      color: "#0f172a",
                         fontWeight: 600,
                         fontSize: isPrimary ? 13 : 11,
                       },
                       label: {
                         show: true,
                         fontSize: isPrimary ? 12 : 10,
+                      color: "#ffffff",
                         formatter: (params: { name: string; value?: number | number[] }) => {
                           const rawValue = Array.isArray(params.value) ? params.value[0] : params.value;
                           const value = typeof rawValue === "number" ? rawValue : 0;
@@ -1112,7 +1207,7 @@ export default function DashboardPage() {
                             borderWidth: 2,
                             gapWidth: 2,
                           },
-                          colorSaturation: [0.35, 0.55],
+                          colorSaturation: [0.35, 0.45],
                           upperLabel: {
                             show: true,
                             color: "#0f172a",
@@ -1125,7 +1220,7 @@ export default function DashboardPage() {
                             borderWidth: 1,
                             gapWidth: 1,
                           },
-                          colorSaturation: [0.35, 0.55],
+                          colorSaturation: [0.35, 0.45],
                         },
                       ],
                       data: groupPersonTreemapData,
@@ -1185,22 +1280,27 @@ export default function DashboardPage() {
                   series: [
                     {
                       type: "sankey",
-                      left: isPrimary ? 48 : 24,
-                      right: isPrimary ? 200 : 48,
-                      top: isPrimary ? 40 : 24,
-                      bottom: isPrimary ? 24 : 12,
+                      left: isPrimary ? 48 : 10,
+                      right: isPrimary ? 230 : 100,
+                      top: isPrimary ? 40 : 10,
+                      bottom: isPrimary ? 24 : 5,
                       nodeWidth: isPrimary ? 14 : 10,
                       emphasis: { focus: "adjacency" },
                       lineStyle: { color: "gradient", curveness: 0.5 },
                       label: {
                         color: "#0f172a",
-                        formatter: (params: { name: string }) =>
-                          sankeyNodeDisplayLabels[params.name] ?? params.name,
+                        formatter: (params: { name: string }) => {
+                          const label = sankeyNodeDisplayLabels[params.name] ?? params.name;
+                          if (!params.name.startsWith("article:")) {
+                            return label;
+                          }
+                          return wrapTextByWords(label, 30);
+                        },
                       },
                       levels: [
-                        { depth: 0, itemStyle: { color: "#3b82f6" } },
-                        { depth: 1, itemStyle: { color: "#14b8a6" } },
-                        { depth: 2, itemStyle: { color: "#f59e0b" } },
+                        { depth: 0, itemStyle: { color: ARTICLE_SANKEY_LEVEL_COLORS[0] } },
+                        { depth: 1, itemStyle: { color: ARTICLE_SANKEY_LEVEL_COLORS[1] } },
+                        { depth: 2, itemStyle: { color: ARTICLE_SANKEY_LEVEL_COLORS[2] } },
                       ],
                       data: filteredArticleSankey.nodes.map(node => ({
                         name: node.id,

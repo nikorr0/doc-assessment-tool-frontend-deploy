@@ -28,18 +28,43 @@ const QUARTER_END_DAY: Record<number, number> = {
   3: 30,
   4: 31,
 };
-const COMPLETED_BY_QUARTER: Record<number, number> = {
-  1: 10,
-  2: 6,
-  3: 3,
-  4: 1,
-};
-const UNVERIFIED_BY_QUARTER: Record<number, number> = {
-  1: 1,
-  2: 2,
-  3: 2,
-  4: 1,
-};
+const GROUP_QUARTER_PLAN = [
+  {
+    taskCounts: [12, 10, 7, 8],
+    completedCounts: [12, 6, 1, 1],
+    unverifiedCounts: [1, 1, 0, 1],
+  },
+  {
+    taskCounts: [8, 8, 5, 7],
+    completedCounts: [8, 5, 1, 0],
+    unverifiedCounts: [1, 0, 0, 0],
+  },
+  {
+    taskCounts: [6, 9, 6, 9],
+    completedCounts: [6, 6, 1, 1],
+    unverifiedCounts: [0, 0, 0, 0],
+  },
+  {
+    taskCounts: [7, 7, 8, 8],
+    completedCounts: [7, 4, 2, 1],
+    unverifiedCounts: [1, 0, 1, 0],
+  },
+  {
+    taskCounts: [5, 7, 5, 9],
+    completedCounts: [5, 4, 1, 1],
+    unverifiedCounts: [0, 1, 0, 1],
+  },
+  {
+    taskCounts: [7, 6, 7, 10],
+    completedCounts: [7, 3, 1, 1],
+    unverifiedCounts: [1, 0, 1, 0],
+  },
+  {
+    taskCounts: [5, 8, 7, 9],
+    completedCounts: [5, 5, 2, 1],
+    unverifiedCounts: [1, 1, 0, 1],
+  },
+] as const;
 const ACT_LOADED_QUARTERS_BY_GROUP = [
   [1, 2, 3, 4],
   [1, 2, 3],
@@ -51,23 +76,23 @@ const ACT_LOADED_QUARTERS_BY_GROUP = [
 ] as const;
 
 const STARTER_GROUPS = [
-  { id: "1", name: "Группа 1. Август Августович Августов" },
-  { id: "2", name: "Группа 2. Геннадий Геннадьевич Геннадьев" },
-  { id: "3", name: "Группа 3. Захар Захарович Захаров" },
-  { id: "4", name: "Группа 4. Лаврентий Лаврентьевич Лаврентьев" },
-  { id: "5", name: "Группа 5. Оскар Оскарович Оскаров" },
-  { id: "6", name: "Группа 6. Савелий Савельевич Савельев" },
-  { id: "7", name: "Группа 7. Фаддей Фаддеевич Фаддеев" },
+  { id: "1", name: "Группа 1. Августов А. А." },
+  { id: "2", name: "Группа 2. Геннадьев Г. Г." },
+  { id: "3", name: "Группа 3. Захаров З. З." },
+  { id: "4", name: "Группа 4. Лаврентьев Л. Л." },
+  { id: "5", name: "Группа 5. Оскаров О. О." },
+  { id: "7", name: "Группа 7. Савельев С. С." },
+  { id: "6", name: "Группа 6. Фаддеев Ф. Ф." },
 ] as const;
 
 const STARTER_PEOPLE = [
-  ["Август Августович Августов", "Богдан Богданович Богданов", "Вадим Вадимович Вадимов"],
-  ["Геннадий Геннадьевич Геннадьев", "Демид Демидович Демидов", "Елисей Елисеевич Елисеев"],
-  ["Захар Захарович Захаров", "Иларион Иларионович Иларионов", "Климент Климентович Климентов"],
-  ["Лаврентий Лаврентьевич Лаврентьев", "Мирон Миронович Миронов", "Назар Назарович Назаров"],
-  ["Оскар Оскарович Оскаров", "Платон Платонович Платонов", "Родион Родионович Родионов"],
-  ["Савелий Савельевич Савельев", "Тарас Тарасович Тарасов", "Устин Устинович Устинов"],
-  ["Фаддей Фаддеевич Фаддеев", "Харитон Харитонович Харитонов", "Эмиль Эмильевич Эмильев"],
+  ["Августов А. А.", "Богданов Б. Б.", "Вадимов В. В.", "Громов Г. Г.", "Данилов Д. Д."],
+  ["Геннадьев Г. Г.", "Демидов Д. Д.", "Елисеев Е. Е.", "Жданов Ж. Ж.", "Зотов З. З."],
+  ["Захаров З. З.", "Иларионов И. И.", "Климентов К. К.", "Лебедев Л. Л.", "Макаров М. М."],
+  ["Лаврентьев Л. Л.", "Миронов М. М.", "Назаров Н. Н.", "Орлов О. О.", "Панов П. П."],
+  ["Оскаров О. О.", "Платонов П. П.", "Родионов Р. Р.", "Соколов С. С.", "Титов Т. Т."],
+  ["Савельев С. С.", "Тарасов Т. Т.", "Юдин Ю. Ю.", "Федоров Ф. Ф.", "Хамитов Х. Х."],
+  ["Фаддеев Ф. Ф.", "Харитонов Х. Х.", "Эмильев Э. Э.", "Устинов У. У.", "Яковлев Я. Я."],
 ] as const;
 
 const STARTER_TASKS = [
@@ -82,6 +107,14 @@ const STARTER_TASKS = [
   "Подготовить предложения для улучшения метрик",
   "Подтвердить выполнение задач по плану",
 ] as const;
+const ARTICLE_SAKEY_TASKS = [
+  "Написание статьи по атмосферному балансу",
+  "Написание статьи по воздушным потокам",
+  "Написание статьи по флористической растительности",
+  "Написание статьи по региональной дегидратации",
+  "Написание раздела статьи по биогенным веществам",
+] as const;
+const ARTICLE_SAKEY_PARTICIPANTS = [5, 4, 3, 2, 1] as const;
 
 let taskIdSequence = 50000;
 
@@ -118,6 +151,62 @@ function toQuarterDeadline(quarter: number): string {
   return `${TASK_DEADLINE_YEAR}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T09:00:00.000Z`;
 }
 
+function getGroupQuarterPlan(groupIndex: number) {
+  return GROUP_QUARTER_PLAN[groupIndex % GROUP_QUARTER_PLAN.length];
+}
+
+function buildDistinctTaskCounts(totalTasks: number, peopleCount: number): number[] {
+  if (peopleCount <= 0) return [];
+  const minRequired = (peopleCount * (peopleCount + 1)) / 2;
+  if (totalTasks < minRequired) {
+    const fallback = new Array(peopleCount).fill(0);
+    for (let index = 0; index < totalTasks; index += 1) {
+      fallback[index % peopleCount] += 1;
+    }
+    return fallback;
+  }
+
+  const counts = Array.from({ length: peopleCount }, (_, index) => index + 1);
+  let remaining = totalTasks - minRequired;
+  if (remaining > 0) {
+    const uniformExtra = Math.floor(remaining / peopleCount);
+    if (uniformExtra > 0) {
+      for (let index = 0; index < peopleCount; index += 1) {
+        counts[index] += uniformExtra;
+      }
+      remaining -= uniformExtra * peopleCount;
+    }
+  }
+  if (remaining > 0) {
+    for (let index = peopleCount - 1; index >= 0 && remaining > 0; index -= 1) {
+      counts[index] += 1;
+      remaining -= 1;
+    }
+  }
+  return counts;
+}
+
+function rotateArray<T>(items: readonly T[], shift: number): T[] {
+  if (items.length === 0) return [];
+  const normalizedShift = ((shift % items.length) + items.length) % items.length;
+  if (normalizedShift === 0) return [...items];
+  return [...items.slice(normalizedShift), ...items.slice(0, normalizedShift)];
+}
+
+function buildPersonAssignment(people: readonly string[], totalTasks: number, seedShift: number): string[] {
+  if (people.length === 0 || totalTasks <= 0) return [];
+  const rotatedPeople = rotateArray(people, seedShift);
+  const distinctCounts = buildDistinctTaskCounts(totalTasks, rotatedPeople.length);
+  const assignments: string[] = [];
+  rotatedPeople.forEach((person, personIndex) => {
+    const personTaskCount = distinctCounts[personIndex] ?? 0;
+    for (let taskIndex = 0; taskIndex < personTaskCount; taskIndex += 1) {
+      assignments.push(person);
+    }
+  });
+  return assignments;
+}
+
 function buildValidationProfile(
   fileName: string,
   type: "ORDER" | "ACT"
@@ -152,8 +241,8 @@ function buildValidationProfile(
         "Для 2 группы отсутстуют заголовки таблицы, документ прочитан без их учета",
         "Таблица 1, строка 2: в дате обнаружен лишний пробел перед годом, дата прочитана с его игнорированием",
         "Таблица 1, строка 3: в дате обнаружен лишний пробел перед годом, дата прочитана с его игнорированием",
-        "Таблица 2, строка 4: строка-продолжение без ФИО отнесена к предыдущему сотруднику Август Августович Августов",
-        "Для группы 3 руководитель Захар Захарович Захаров не найден среди сотрудников таблицы"
+        "Таблица 2, строка 4: строка-продолжение без ФИО отнесена к предыдущему сотруднику Августов А. А.",
+        "Для группы 3 руководитель Захаров З. З. не найден среди сотрудников таблицы"
       ],
       forwardedToReader: true,
     };
@@ -411,41 +500,118 @@ function buildArticleSankey(
   const nodes = new Map<string, SankeyNode>();
   const links = new Map<string, SankeyLink>();
   let totalMatches = 0;
+  const maxTasksPerPerson = 3;
+  const maxPeopleInSankey = 10;
+  const personParticipationCounter = new Map<string, number>();
+  const initialGroupPeoplePool = groups
+    .map(group => {
+      const uniquePeople = Array.from(
+        new Set(
+          (tasksByGroup[group.groupId] ?? [])
+            .filter(task => getTaskYear(task.deadline) === selectedYear)
+            .map(task => task.fullName?.trim() || "Не указано")
+        )
+      );
+      return {
+        groupId: group.groupId,
+        groupName: group.groupName ?? group.groupId,
+        people: uniquePeople,
+      };
+    })
+    .filter(group => group.people.length > 0);
+  const allowedPeople = new Set<string>();
+  const groupPeopleCursor = initialGroupPeoplePool.map(() => 0);
+  while (allowedPeople.size < maxPeopleInSankey) {
+    let hasProgress = false;
+    for (let groupIndex = 0; groupIndex < initialGroupPeoplePool.length; groupIndex += 1) {
+      if (allowedPeople.size >= maxPeopleInSankey) break;
+      const groupPool = initialGroupPeoplePool[groupIndex];
+      const cursor = groupPeopleCursor[groupIndex] ?? 0;
+      if (cursor >= groupPool.people.length) continue;
+      const personName = groupPool.people[cursor];
+      groupPeopleCursor[groupIndex] = cursor + 1;
+      if (!personName || allowedPeople.has(personName)) continue;
+      allowedPeople.add(personName);
+      hasProgress = true;
+    }
+    if (!hasProgress) break;
+  }
+  const groupPeoplePool = initialGroupPeoplePool
+    .map(group => ({
+      ...group,
+      people: group.people.filter(person => allowedPeople.has(person)),
+    }))
+    .filter(group => group.people.length > 0);
 
-  groups.forEach(group => {
-    const groupTasks = (tasksByGroup[group.groupId] ?? []).filter(task => {
-      if (getTaskYear(task.deadline) !== selectedYear) return false;
-      if (!normalizedQuery) return true;
-      const haystack = `${task.fullName ?? ""} ${task.taskText ?? ""}`.toLowerCase();
-      return haystack.includes(normalizedQuery);
-    });
+  ARTICLE_SAKEY_TASKS.forEach((articleTaskName, articleIndex) => {
+    if (groupPeoplePool.length === 0) return;
+    const requestedParticipants = ARTICLE_SAKEY_PARTICIPANTS[articleIndex] ?? 1;
+    const targetParticipants = Math.max(1, Math.min(5, requestedParticipants, groupPeoplePool.length));
+    const participants: Array<{ groupId: string; groupName: string; personName: string }> = [];
+    const usedGroupIds = new Set<string>();
+    const usedPersonNames = new Set<string>();
+    const rotatedGroupPool = [
+      ...groupPeoplePool.slice(articleIndex % groupPeoplePool.length),
+      ...groupPeoplePool.slice(0, articleIndex % groupPeoplePool.length),
+    ];
 
-    if (groupTasks.length === 0) return;
-
-    const groupNodeId = `group:${group.groupId}`;
-    nodes.set(groupNodeId, {
-      id: groupNodeId,
-      name: group.groupName ?? group.groupId,
-      level: 0,
-    });
-
-    groupTasks.forEach(task => {
-      const personName = task.fullName?.trim() || "Не указано";
-      const articleText = task.taskText?.trim() || "Не указано";
-      const personNodeId = `person:${slug(personName)}`;
-      const articleNodeId = `article:${slug(articleText)}-${Math.abs(task.taskId)}`;
-
-      nodes.set(personNodeId, { id: personNodeId, name: personName, level: 1 });
-      nodes.set(articleNodeId, {
-        id: articleNodeId,
-        name: articleText.length > 80 ? `${articleText.slice(0, 77)}...` : articleText,
-        level: 2,
-        fullText: articleText,
+    for (let offset = 0; offset < rotatedGroupPool.length; offset += 1) {
+      if (participants.length >= targetParticipants) break;
+      const groupPool = rotatedGroupPool[offset];
+      if (usedGroupIds.has(groupPool.groupId)) continue;
+      const availablePeople = groupPool.people
+        .filter(person => (personParticipationCounter.get(person) ?? 0) < maxTasksPerPerson)
+        .sort((left, right) => {
+          const leftCount = personParticipationCounter.get(left) ?? 0;
+          const rightCount = personParticipationCounter.get(right) ?? 0;
+          if (leftCount !== rightCount) return leftCount - rightCount;
+          return left.localeCompare(right, "ru");
+        });
+      const personName = availablePeople[0] ?? "";
+      if (!personName) continue;
+      if (usedPersonNames.has(personName)) continue;
+      participants.push({
+        groupId: groupPool.groupId,
+        groupName: groupPool.groupName,
+        personName,
       });
+      usedGroupIds.add(groupPool.groupId);
+      usedPersonNames.add(personName);
+    }
+
+    if (participants.length === 0) return;
+
+    const articleQueryHaystack = `${articleTaskName} ${participants
+      .map(item => `${item.personName} ${item.groupName}`)
+      .join(" ")}`.toLowerCase();
+    if (normalizedQuery && !articleQueryHaystack.includes(normalizedQuery)) {
+      return;
+    }
+
+    const articleNodeId = `article:${articleIndex + 1}`;
+    nodes.set(articleNodeId, {
+      id: articleNodeId,
+      name: articleTaskName,
+      level: 2,
+      fullText: articleTaskName,
+    });
+
+    participants.forEach(participant => {
+      const groupNodeId = `group:${participant.groupId}`;
+      const personNodeId = `person:${slug(participant.personName)}`;
+      personParticipationCounter.set(
+        participant.personName,
+        (personParticipationCounter.get(participant.personName) ?? 0) + 1
+      );
+      nodes.set(groupNodeId, {
+        id: groupNodeId,
+        name: participant.groupName,
+        level: 0,
+      });
+      nodes.set(personNodeId, { id: personNodeId, name: participant.personName, level: 1 });
 
       const gpKey = `${groupNodeId}->${personNodeId}`;
       const paKey = `${personNodeId}->${articleNodeId}`;
-
       links.set(gpKey, {
         source: groupNodeId,
         target: personNodeId,
@@ -512,22 +678,36 @@ function createStarterGroups(orderId: string): GroupRecord[] {
 function createStarterTasks(groupId: string, groupIndex: number): TaskRecord[] {
   const tasks: TaskRecord[] = [];
   let taskNumber = 1;
+  const plan = getGroupQuarterPlan(groupIndex);
+  const totalTasks = plan.taskCounts.reduce((acc, count) => acc + count, 0);
+  const personAssignment = buildPersonAssignment(
+    STARTER_PEOPLE[groupIndex],
+    totalTasks,
+    groupIndex
+  );
+  let assignmentIndex = 0;
   for (let quarter = 1; quarter <= 4; quarter += 1) {
-    for (let quarterTaskIndex = 0; quarterTaskIndex < 10; quarterTaskIndex += 1) {
+    const quarterIndex = quarter - 1;
+    const quarterTaskCount = plan.taskCounts[quarterIndex] ?? 0;
+    const quarterCompletedCount = plan.completedCounts[quarterIndex] ?? 0;
+    const quarterUnverifiedCount = plan.unverifiedCounts[quarterIndex] ?? 0;
+    for (let quarterTaskIndex = 0; quarterTaskIndex < quarterTaskCount; quarterTaskIndex += 1) {
+      const assignedPerson =
+        personAssignment[assignmentIndex] ??
+        STARTER_PEOPLE[groupIndex][(quarterTaskIndex + groupIndex) % STARTER_PEOPLE[groupIndex].length];
       tasks.push({
         taskId: taskIdSequence++,
         groupId,
-        fullName:
-          STARTER_PEOPLE[groupIndex][(quarterTaskIndex + groupIndex) % STARTER_PEOPLE[groupIndex].length],
+        fullName: assignedPerson,
         taskText: `${STARTER_TASKS[(taskNumber - 1) % STARTER_TASKS.length]} №${taskNumber}`,
         units: "публикация",
         taskReport: `Отчет по задаче №${taskNumber}`,
         deadline: toQuarterDeadline(quarter),
-        status:
-          quarterTaskIndex < (COMPLETED_BY_QUARTER[quarter] ?? 0) ? "Выполнено" : "Не выполнено",
-        isProfessionalChecked: quarterTaskIndex >= (UNVERIFIED_BY_QUARTER[quarter] ?? 0),
+        status: quarterTaskIndex < quarterCompletedCount ? "Выполнено" : "Не выполнено",
+        isProfessionalChecked: quarterTaskIndex >= quarterUnverifiedCount,
       });
       taskNumber += 1;
+      assignmentIndex += 1;
     }
   }
   return tasks;

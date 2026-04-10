@@ -37,18 +37,43 @@ const QUARTER_END_DAY: Record<number, number> = {
   3: 30,
   4: 31,
 };
-const COMPLETED_BY_QUARTER: Record<number, number> = {
-  1: 10,
-  2: 6,
-  3: 3,
-  4: 1,
-};
-const UNVERIFIED_BY_QUARTER: Record<number, number> = {
-  1: 1,
-  2: 2,
-  3: 2,
-  4: 1,
-};
+const GROUP_QUARTER_PLAN = [
+  {
+    taskCounts: [12, 10, 7, 8],
+    completedCounts: [12, 6, 1, 1],
+    unverifiedCounts: [1, 1, 0, 1],
+  },
+  {
+    taskCounts: [8, 8, 5, 7],
+    completedCounts: [8, 5, 1, 0],
+    unverifiedCounts: [1, 0, 0, 0],
+  },
+  {
+    taskCounts: [6, 9, 6, 9],
+    completedCounts: [6, 6, 1, 1],
+    unverifiedCounts: [0, 0, 1, 0],
+  },
+  {
+    taskCounts: [7, 7, 8, 8],
+    completedCounts: [7, 4, 2, 1],
+    unverifiedCounts: [1, 0, 1, 0],
+  },
+  {
+    taskCounts: [5, 7, 5, 9],
+    completedCounts: [5, 4, 1, 1],
+    unverifiedCounts: [0, 1, 0, 1],
+  },
+  {
+    taskCounts: [7, 6, 7, 10],
+    completedCounts: [7, 3, 1, 1],
+    unverifiedCounts: [1, 0, 1, 0],
+  },
+  {
+    taskCounts: [5, 8, 7, 9],
+    completedCounts: [5, 5, 2, 1],
+    unverifiedCounts: [1, 1, 0, 1],
+  },
+] as const;
 const ACT_LOADED_QUARTERS_BY_GROUP = [
   [1, 2, 3, 4],
   [1, 2, 3],
@@ -62,65 +87,79 @@ const ACT_LOADED_QUARTERS_BY_GROUP = [
 const GROUP_DEFINITIONS = [
   {
     id: "1",
-    name: "Группа 1. Август Августович Августов",
+    name: "Группа 1. Августов А. А.",
     people: [
-      "Август Августович Августов",
-      "Богдан Богданович Богданов",
-      "Вадим Вадимович Вадимов",
+      "Августов А. А.",
+      "Богданов Б. Б.",
+      "Вадимов В. В.",
+      "Громов Г. Г.",
+      "Данилов Д. Д.",
     ],
   },
   {
     id: "2",
-    name: "Группа 2. Геннадий Геннадьевич Геннадьев",
+    name: "Группа 2. Геннадьев Г. Г.",
     people: [
-      "Геннадий Геннадьевич Геннадьев",
-      "Демид Демидович Демидов",
-      "Елисей Елисеевич Елисеев",
+      "Геннадьев Г. Г.",
+      "Демидов Д. Д.",
+      "Елисеев Е. Е.",
+      "Жданов Ж. Ж.",
+      "Зотов З. З.",
     ],
   },
   {
     id: "3",
-    name: "Группа 3. Захар Захарович Захаров",
+    name: "Группа 3. Захаров З. З.",
     people: [
-      "Захар Захарович Захаров",
-      "Иларион Иларионович Иларионов",
-      "Климент Климентович Климентов",
+      "Захаров З. З.",
+      "Иларионов И. И.",
+      "Климентов К. К.",
+      "Лебедев Л. Л.",
+      "Макаров М. М.",
     ],
   },
   {
     id: "4",
-    name: "Группа 4. Лаврентий Лаврентьевич Лаврентьев",
+    name: "Группа 4. Лаврентьев Л. Л.",
     people: [
-      "Лаврентий Лаврентьевич Лаврентьев",
-      "Мирон Миронович Миронов",
-      "Назар Назарович Назаров",
+      "Лаврентьев Л. Л.",
+      "Миронов М. М.",
+      "Назаров Н. Н.",
+      "Орлов О. О.",
+      "Панов П. П.",
     ],
   },
   {
     id: "5",
-    name: "Группа 5. Оскар Оскарович Оскаров",
+    name: "Группа 5. Оскаров О. О.",
     people: [
-      "Оскар Оскарович Оскаров",
-      "Платон Платонович Платонов",
-      "Родион Родионович Родионов",
+      "Оскаров О. О.",
+      "Платонов П. П.",
+      "Родионов Р. Р.",
+      "Соколов С. С.",
+      "Титов Т. Т.",
     ],
   },
   {
     id: "6",
-    name: "Группа 6. Савелий Савельевич Савельев",
+    name: "Группа 6. Савельев С. С.",
     people: [
-      "Савелий Савельевич Савельев",
-      "Тарас Тарасович Тарасов",
-      "Устин Устинович Устинов",
+      "Савельев С. С.",
+      "Тарасов Т. Т.",
+      "Устинов У. У.",
+      "Федоров Ф. Ф.",
+      "Михайлов М. М.",
     ],
   },
   {
     id: "7",
-    name: "Группа 7. Фаддей Фаддеевич Фаддеев",
+    name: "Группа 7. Фаддеев Ф. Ф.",
     people: [
-      "Фаддей Фаддеевич Фаддеев",
-      "Харитон Харитонович Харитонов",
-      "Эмиль Эмильевич Эмильев",
+      "Фаддеев Ф. Ф.",
+      "Харитонов Х. Х.",
+      "Эмильев Э. Э.",
+      "Юдин Ю. Ю.",
+      "Яковлев Я. Я.",
     ],
   },
 ] as const;
@@ -143,23 +182,95 @@ function taskQuarterDeadline(quarter: number): string {
   return formatIsoDate(TASK_DEADLINE_YEAR, endMonth, endDay);
 }
 
-function createTasksForGroup(groupId: string, people: readonly string[], seedShift: number): TaskRecord[] {
+function getGroupQuarterPlan(groupPlanIndex: number) {
+  return GROUP_QUARTER_PLAN[groupPlanIndex % GROUP_QUARTER_PLAN.length];
+}
+
+function buildDistinctTaskCounts(totalTasks: number, peopleCount: number): number[] {
+  if (peopleCount <= 0) return [];
+  const minRequired = (peopleCount * (peopleCount + 1)) / 2;
+  if (totalTasks < minRequired) {
+    const fallback = new Array(peopleCount).fill(0);
+    for (let index = 0; index < totalTasks; index += 1) {
+      fallback[index % peopleCount] += 1;
+    }
+    return fallback;
+  }
+
+  const counts = Array.from({ length: peopleCount }, (_, index) => index + 1);
+  let remaining = totalTasks - minRequired;
+  if (remaining > 0) {
+    const uniformExtra = Math.floor(remaining / peopleCount);
+    if (uniformExtra > 0) {
+      for (let index = 0; index < peopleCount; index += 1) {
+        counts[index] += uniformExtra;
+      }
+      remaining -= uniformExtra * peopleCount;
+    }
+  }
+  if (remaining > 0) {
+    for (let index = peopleCount - 1; index >= 0 && remaining > 0; index -= 1) {
+      counts[index] += 1;
+      remaining -= 1;
+    }
+  }
+  return counts;
+}
+
+function rotateArray<T>(items: readonly T[], shift: number): T[] {
+  if (items.length === 0) return [];
+  const normalizedShift = ((shift % items.length) + items.length) % items.length;
+  if (normalizedShift === 0) return [...items];
+  return [...items.slice(normalizedShift), ...items.slice(0, normalizedShift)];
+}
+
+function buildPersonAssignment(people: readonly string[], totalTasks: number, seedShift: number): string[] {
+  if (people.length === 0 || totalTasks <= 0) return [];
+  const rotatedPeople = rotateArray(people, seedShift);
+  const distinctCounts = buildDistinctTaskCounts(totalTasks, rotatedPeople.length);
+  const assignments: string[] = [];
+  rotatedPeople.forEach((person, personIndex) => {
+    const personTaskCount = distinctCounts[personIndex] ?? 0;
+    for (let taskIndex = 0; taskIndex < personTaskCount; taskIndex += 1) {
+      assignments.push(person);
+    }
+  });
+  return assignments;
+}
+
+function createTasksForGroup(
+  groupId: string,
+  people: readonly string[],
+  seedShift: number,
+  groupPlanIndex: number
+): TaskRecord[] {
   const tasks: TaskRecord[] = [];
   let taskNumber = 1;
+  const plan = getGroupQuarterPlan(groupPlanIndex);
+  const totalTasks = plan.taskCounts.reduce((acc, count) => acc + count, 0);
+  const personAssignment = buildPersonAssignment(people, totalTasks, seedShift);
+  let assignmentIndex = 0;
   for (let quarter = 1; quarter <= 4; quarter += 1) {
-    for (let quarterTaskIndex = 0; quarterTaskIndex < 10; quarterTaskIndex += 1) {
+    const quarterIndex = quarter - 1;
+    const quarterTaskCount = plan.taskCounts[quarterIndex] ?? 0;
+    const quarterCompletedCount = plan.completedCounts[quarterIndex] ?? 0;
+    const quarterUnverifiedCount = plan.unverifiedCounts[quarterIndex] ?? 0;
+    for (let quarterTaskIndex = 0; quarterTaskIndex < quarterTaskCount; quarterTaskIndex += 1) {
+      const assignedPerson =
+        personAssignment[assignmentIndex] ?? people[(quarterTaskIndex + seedShift) % people.length];
       tasks.push({
         taskId: taskIdSequence++,
         groupId,
-        fullName: people[(quarterTaskIndex + seedShift) % people.length],
+        fullName: assignedPerson,
         taskText: `${TASK_TEMPLATES[(taskNumber - 1) % TASK_TEMPLATES.length]} №${taskNumber}`,
         units: UNIT_ROTATION[(taskNumber - 1) % UNIT_ROTATION.length],
         taskReport: `Отчет по задаче ${taskNumber}`,
         deadline: taskQuarterDeadline(quarter),
-        status: quarterTaskIndex < (COMPLETED_BY_QUARTER[quarter] ?? 0) ? "Выполнено" : "Не выполнено",
-        isProfessionalChecked: quarterTaskIndex >= (UNVERIFIED_BY_QUARTER[quarter] ?? 0),
+        status: quarterTaskIndex < quarterCompletedCount ? "Выполнено" : "Не выполнено",
+        isProfessionalChecked: quarterTaskIndex >= quarterUnverifiedCount,
       });
       taskNumber += 1;
+      assignmentIndex += 1;
     }
   }
   return tasks;
@@ -220,7 +331,8 @@ function createOrderBundle(projectId: string, orderIndex: number, createdAt: str
     tasksByGroup[group.groupId] = createTasksForGroup(
       group.groupId,
       groupDefinition.people,
-      orderIndex + groupIndex
+      orderIndex + groupIndex,
+      groupIndex
     );
   });
 
@@ -274,7 +386,7 @@ export function buildSeedState(): MockSeedState {
   const infographicsByOrderAndYear: Record<string, Record<string, DashboardInfographicsResponse>> = {};
 
   projects.forEach((project, projectIndex) => {
-    const firstOrderDate = formatIsoDate(2026 + projectIndex, 11, 20);
+    const firstOrderDate = formatIsoDate(2026, 3 + projectIndex, 20);
     const secondOrderDate = formatIsoDate(2026, 2 + projectIndex, 15);
     const firstOrder = createOrderBundle(project.id, 1, firstOrderDate);
     const secondOrder = createOrderBundle(project.id, 2, secondOrderDate);
