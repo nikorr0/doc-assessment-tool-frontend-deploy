@@ -312,18 +312,51 @@ export default function ProjectsPage() {
     refreshProjects();
   }, []);
 
+  const STATUS_ORDER: Record<string, number> = {
+    in_progress: 0,
+    planned: 1,
+    completed: 2,
+  };
 
-  const orderedProjects = useMemo(
-    () => [...projects].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")),
-    [projects]
-  );
 
+const orderedProjects = useMemo(() => {
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? projects.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.tag ?? "").toLowerCase().includes(q) ||
+          (p.comment ?? "").toLowerCase().includes(q) ||
+          (p.supervisor ?? "").toLowerCase().includes(q)
+      )
+    : projects;
+
+  const copy = [...filtered];
+  if (sortBy === "date") {
+    copy.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  } else {
+    copy.sort((a, b) => {
+      const sa = STATUS_ORDER[a.status ?? "in_progress"] ?? 99;
+      const sb = STATUS_ORDER[b.status ?? "in_progress"] ?? 99;
+      if (sa !== sb) return sa - sb;
+      return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+    });
+  }
+  return copy;
+}, [projects, sortBy, search]);
+
+  function handleProjectCreated(project: Project) {
+    setProjects((prev) => [project, ...prev]);
+  }
+  function handleProjectSaved(updated: Project) {
+    setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+  }
   async function handleDelete() {
     if (!projectToDelete) return;
     setDeleting(true);
     try {
       await deleteProject(projectToDelete.id);
-      setProjects(prev => prev.filter(p => p.id !== projectToDelete.id));
+      setProjects((prev) => prev.filter((p) => p.id !== projectToDelete.id));
       setProjectToDelete(null);
     } catch (err) {
       console.error(err);
@@ -333,19 +366,68 @@ export default function ProjectsPage() {
     }
   }
 
+  const stats = useMemo(() => ({
+    total: projects.length,
+    planned: projects.filter((p) => p.status === "planned").length,
+    inProgress: projects.filter((p) => p.status === "in_progress").length,
+    completed: projects.filter((p) => p.status === "completed").length,
+  }), [projects]);
+
   return (
     <div>
       <div style={{ marginBottom: 24 }} />
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0 }}>Список проектов</h3>
-          <button type="button" className="secondary" onClick={refreshProjects} disabled={loading === "loading"}>
-            Обновить
-          </button>
+          <h3 style={{ margin: 0 }}>Список научных проектов</h3>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={() => setShowModal(true)}>+ Создать</button>
+            <button type="button" className="secondary" onClick={refreshProjects} disabled={loading === "loading"}>
+              Обновить
+            </button>
+          </div>
         </div>
 
-        {loading === "loading" && <div>Загрузка проектов...</div>}
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+          <div className="search-input-wrap">
+            <input
+              type="text"
+              placeholder="Поиск по названию, тегу, руководителю, комментарию..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                type="button"
+                className="search-clear-btn"
+                onClick={() => setSearch("")}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="sort-controls" style={{ margin: 0 }}>
+            <span style={{ fontSize: 13, color: "#64748b" }}>Сортировка:</span>
+            <button
+              type="button"
+              className={`sort-btn${sortBy === "date" ? " sort-btn--active" : ""}`}
+              onClick={() => setSortBy("date")}
+            >
+              По дате
+            </button>
+            <button
+              type="button"
+              className={`sort-btn${sortBy === "status" ? " sort-btn--active" : ""}`}
+              onClick={() => setSortBy("status")}
+            >
+              По статусу
+            </button>
+          </div>
+        </div>
+
+
+        {loading === "loading" && <div style={{ color: "#64748b" }}>Загрузка проектов...</div>}
+
         {loading === "error" && (
           <div>
             {listError ?? "Ошибка загрузки"}
@@ -356,9 +438,20 @@ export default function ProjectsPage() {
         )}
 
         {loading === "idle" && orderedProjects.length === 0 && (
-          <div className="empty-state">Проектов пока нет. Создайте первый проект.</div>
+          <div className="empty-state">
+            {search.trim()
+              ? `По запросу «${search}» ничего не найдено.`
+              : <>Проектов пока нет.{" "}
+                  <button
+                    type="button"
+                    style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0, fontSize: "inherit" }}
+                    onClick={() => setShowModal(true)}
+                  >
+                    Создайте первый проект
+                  </button>.</>
+            }
+          </div>
         )}
-
         {orderedProjects.length > 0 && (
           <div className="projects-grid">
             {orderedProjects.map((project) => (
@@ -442,6 +535,19 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
+
+      {loading === "idle" && projects.length > 0 && (
+        <div className="status-bar">
+          <span>Всего: <strong>{stats.total}</strong></span>
+          <span className="status-bar__dot" />
+          <span style={{ color: "#3b64d4" }}>Планируется: <strong>{stats.planned}</strong></span>
+          <span className="status-bar__dot" />
+          <span style={{ color: "#a1781e" }}>В работе: <strong>{stats.inProgress}</strong></span>
+          <span className="status-bar__dot" />
+          <span style={{ color: "#288d4f" }}>Завершено: <strong>{stats.completed}</strong></span>
+        </div>
+      )}
+
     </div>
   );
 }
