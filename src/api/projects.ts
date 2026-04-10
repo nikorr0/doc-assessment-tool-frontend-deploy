@@ -8,6 +8,7 @@ export const createProject = activeApi.createProject;
 export const listProjects = activeApi.listProjects;
 export const getProject = activeApi.getProject;
 export const deleteProject = activeApi.deleteProject;
+export const updateProject = activeApi.updateProject;
 export const listOrders = activeApi.listOrders;
 export const uploadOrder = activeApi.uploadOrder;
 export const getOrder = activeApi.getOrder;

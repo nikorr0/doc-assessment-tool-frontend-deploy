@@ -241,11 +241,28 @@ export function buildSeedState(): MockSeedState {
       id: "project-alpha",
       name: "Тестовый проект №1",
       createdAt: "2026-01-10T08:00:00.000Z",
+      status: "in_progress",
+      tag: "Важный",
+      supervisor: "Иванов Иван Иванович",
+      comment: "Основной пилотный проект для тестирования функционала системы.",
     },
     {
       id: "project-beta",
       name: "Тестовый проект №2",
       createdAt: "2026-02-14T11:30:00.000Z",
+      status: "planned",
+      tag: "Новый",
+      supervisor: "Петров Пётр Петрович",
+      comment: "Второй тестовый проект. Ожидает запуска.",
+    },
+    {
+    id: "project-gamma",
+    name: "Завершённый тестовый проект",
+    createdAt: "2025-11-01T09:00:00.000Z",
+    status: "completed",
+    tag: "Архив",
+    supervisor: "Маринина Марина Мариновна",
+    comment: "Проект успешно завершён в конце 2025 года.",
     },
   ];
 

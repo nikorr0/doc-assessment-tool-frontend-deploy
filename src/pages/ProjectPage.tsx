@@ -105,8 +105,53 @@ export default function ProjectPage() {
         &larr; Все проекты
       </Link>
       <h1 className="page-title">Проект "{project?.name}"</h1>
-      {/* <p className="subtitle">Создайте и загрузите приказы, затем добавляйте акты внутри каждого приказа.</p> */}
+{projectState === "idle" && project && (
+        <div className="card">
+          <h3 style={{ marginTop: 0, marginBottom: 16 }}>Информация о проекте</h3>
+          <div className="project-view-grid">
 
+            <div className="project-view-field">
+              <span className="project-view-label">Статус: </span>
+              <span className={`status-badge status-badge--${(project.status ?? "in_progress").replace("_", "-")}`}>
+                {{ planned: "Планируется", in_progress: "В работе", completed: "Завершён" }[project.status ?? "in_progress"]}
+              </span>
+            </div>
+
+            <div className="project-view-field">
+              <span className="project-view-label">Тег: </span>
+              {project.tag
+                ? <span className="tag-badge">#{project.tag}</span>
+                : <span style={{ color: "#94a3b8", fontSize: 14 }}>—</span>
+              }
+            </div>
+
+            <div className="project-view-field">
+              <span className="project-view-label">Дата создания: </span>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>
+                {project.createdAt ? (() => { const d = new Date(project.createdAt!); return `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}`; })() : "—"}
+              </span>
+            </div>
+
+            {project.supervisor && (
+              <div className="project-view-field">
+                <span className="project-view-label">Руководитель: </span>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>{project.supervisor}</span>
+              </div>
+            )}
+
+            {project.comment && (
+              <div className="project-view-field" style={{ gridColumn: "1 / -1" }}>
+                <span className="project-view-label">Комментарий: </span>
+                <span className="project-view-comment">{project.comment}</span>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+      
+      {/* <p className="subtitle">Создайте и загрузите приказы, затем добавляйте акты внутри каждого приказа.</p> */}
+      
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Загрузить приказ</h3>
         <p style={{ marginTop: 4, color: "#64748b" }}>Поддерживаются только файлы .docx</p>

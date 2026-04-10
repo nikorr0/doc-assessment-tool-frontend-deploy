@@ -582,13 +582,20 @@ function findTask(orderId: string, taskId: number): TaskRecord | null {
   return null;
 }
 
-export async function createProject(name: string): Promise<Project> {
+export async function createProject(
+  name: string,
+  options?: { status?: import("../../types").ProjectStatus; tag?: string; comment?: string; createdAt?: string; supervisor?: string }
+): Promise<Project> {
   await withNetworkDelay();
   const db = getDb();
   const project: Project = {
     id: nextId("project"),
     name,
-    createdAt: nowIso(),
+    createdAt: options?.createdAt ?? nowIso(),
+    status: options?.status ?? "in_progress",
+    tag: options?.tag,
+    comment: options?.comment,
+    supervisor: options?.supervisor,
   };
   db.projects.unshift(project);
   db.ordersByProjectId[project.id] = [];
@@ -627,6 +634,21 @@ export async function deleteProject(projectId: string): Promise<void> {
 
   db.projects = db.projects.filter(project => project.id !== projectId);
   delete db.ordersByProjectId[projectId];
+}
+
+export async function updateProject(
+  projectId: string,
+  patch: { status?: import("../../types").ProjectStatus; tag?: string; comment?: string; supervisor?: string }
+): Promise<Project> {
+  await withNetworkDelay();
+  const db = getDb();
+  const project = db.projects.find((p) => p.id === projectId);
+  if (!project) throw new Error(`Project ${projectId} not found`);
+  if (patch.status !== undefined) project.status = patch.status;
+  if (patch.tag !== undefined) project.tag = patch.tag;
+  if (patch.comment !== undefined) project.comment = patch.comment;
+  if (patch.supervisor !== undefined) project.supervisor = patch.supervisor;
+  return deepClone(project);
 }
 
 export async function listOrders(projectId: string): Promise<DocumentRecord[]> {

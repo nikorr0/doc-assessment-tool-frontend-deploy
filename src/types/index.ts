@@ -1,7 +1,13 @@
+export type ProjectStatus = "planned" | "in_progress" | "completed";
+
 export type Project = {
   id: string;
   name: string;
   createdAt?: string;
+  status?: ProjectStatus;
+  tag?: string;
+  comment?: string;
+  supervisor?: string;
 };
 
 export type DocumentType = "ORDER" | "ACT";

@@ -13,8 +13,8 @@ import type {
 
 const DASHBOARD_REQUEST_TIMEOUT_MS = 120000;
 
-export async function createProject(name: string): Promise<Project> {
-  const res = await api.post("/projects", { name });
+export async function createProject(name: string, options?: { status?: import("../types").ProjectStatus; tag?: string; comment?: string; createdAt?: string; supervisor?: string }): Promise<Project> {
+  const res = await api.post("/projects", { name, ...options });
   return res.data;
 }
 
@@ -30,6 +30,14 @@ export async function getProject(projectId: string): Promise<Project> {
 
 export async function deleteProject(projectId: string): Promise<void> {
   await api.delete(`/projects/${projectId}`);
+}
+
+export async function updateProject(
+  projectId: string,
+  patch: { name?: string; status?: import("../types").ProjectStatus; tag?: string; comment?: string; supervisor?: string }
+): Promise<Project> {
+  const response = await api.patch(`/projects/${projectId}`, patch);
+  return response.data;
 }
 
 export async function listOrders(projectId: string): Promise<DocumentRecord[]> {
