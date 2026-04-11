@@ -1134,7 +1134,7 @@ button.secondary {
 }
 
 .search-input-wrap input {
-  width: 150%;
+  width: 100%;
   padding: 8px 12px 8px 34px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
@@ -1178,9 +1178,9 @@ button.secondary {
 .search-input-wrap {
   position: relative;
   display: flex;
-  align-items: center;
-  min-width: 240px;
-  max-width: 320px;
+  align-items: center; 
+  min-width: 280px;
+  max-width: 405px;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
