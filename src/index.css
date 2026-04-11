@@ -886,8 +886,10 @@ button.secondary {
 }
 
 .project-card {
+  position: relative;
   display: flex;
   flex-direction: column;
+  justify-content: center; 
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -899,6 +901,22 @@ button.secondary {
   min-height: 100px;
 }
 
+.project-card__actions {
+  position: absolute;
+  top: 18px;          
+  right: 20px;        
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+}
+
+.project-card__name-wrapper {
+  flex: 1;            
+  display: flex;
+  align-items: center; 
+  padding: 8px 0;     
+}
+
 .project-card:hover {
   border-color: #2563eb;
   box-shadow: 0 4px 16px rgba(37,99,235,0.10);
@@ -908,7 +926,7 @@ button.secondary {
 .project-card__header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   margin-bottom: 10px;
 }
@@ -918,7 +936,8 @@ button.secondary {
   font-weight: 600;
   color: #0f172a;
   line-height: 1.4;
-  flex: 1;
+  word-break: break-word;
+  padding-right: 60px;
 }
 
 .project-card__delete {
@@ -941,7 +960,7 @@ button.secondary {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: auto;
+  margin-top: 0;
   padding-top: 10px;
   border-top: 1px solid #f1f5f9;
 }

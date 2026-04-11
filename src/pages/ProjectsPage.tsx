@@ -456,38 +456,43 @@ const orderedProjects = useMemo(() => {
           <div className="projects-grid">
             {orderedProjects.map((project) => (
               <div key={project.id} style={{ position: "relative", display: "flex" }}>
-                <Link to={`/projects/${project.id}`} className="project-card" style={{ flex: 1 }}>
-                  <div className="project-card__header">
+                <Link
+                  to={`/projects/${project.id}`}
+                  className="project-card"
+                  style={{ flex: 1, position: "relative" }}
+                >
+                  <div className="project-card__actions">
+                    <button
+                      type="button"
+                      className="project-card__edit"
+                      title="Редактировать проект"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setProjectToEdit(project);
+                      }}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M1.5 11.5L4.5 10.5L11 4L9 2L2.5 8.5L1.5 11.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                        <path d="M9 2L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="project-card__delete"
+                      title="Удалить проект"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setProjectToDelete(project);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="project-card__name-wrapper">
                     <span className="project-card__name">{project.name}</span>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <button
-                        type="button"
-                        className="project-card__edit"
-                        title="Редактировать проект"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setProjectToEdit(project);
-                        }}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M1.5 11.5L4.5 10.5L11 4L9 2L2.5 8.5L1.5 11.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-                          <path d="M9 2L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        className="project-card__delete"
-                        title="Удалить проект"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setProjectToDelete(project);
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
                   </div>
 
                   <div className="project-card__footer">
