@@ -90,7 +90,6 @@ export default function OrderPage() {
   const templatePollInFlightRef = useRef(false);
   const tasksPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tasksPollInFlightRef = useRef(false);
-  const projectYear = project?.createdAt ? new Date(project.createdAt).getFullYear() : '';
 
   const TEMPLATE_POLL_INTERVAL_MS = 4000;
   const TEMPLATE_POLL_MAX_ATTEMPTS = 20;
@@ -411,18 +410,6 @@ export default function OrderPage() {
     return "other";
   }, []);
 
-  const filteredTasks = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return tasks.filter(task => {
-      const byStatus =
-        statusFilter === "all" || getStatusFilterKey(task.status) === statusFilter;
-      const bySearch =
-        query.length === 0 ||
-        (task.fullName ?? "").toLowerCase().includes(query) ||
-        (task.taskText ?? "").toLowerCase().includes(query);
-      return byStatus && bySearch;
-    });
-  }, [tasks, statusFilter, searchQuery, getStatusFilterKey]);
 
   const handleTaskStatusChange = useCallback(
     async (taskId: number, newStatus: string) => {
