@@ -15,6 +15,8 @@ import {
   uploadAct,
 } from "../api/projects";
 import { getApiErrorMessage } from "../utils/error";
+import { toValidationIssues } from "../utils/validationIssues";
+import ValidationIssuesModal from "../components/ValidationIssuesModal";
 import type {
   DocumentRecord,
   DocumentValidationStatus,
@@ -22,6 +24,7 @@ import type {
   Project,
   TemplateRecord,
   TaskRecord,
+  ValidationIssue,
 } from "../types";
 
 type LoadState = "idle" | "loading" | "error";
@@ -34,7 +37,8 @@ type ValidationBanner = {
 type ValidationModal = {
   tone: "warning" | "error";
   title: string;
-  issues: string[];
+  issues: ValidationIssue[];
+  exportFileNamePrefix: string;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -93,7 +97,7 @@ export default function OrderPage() {
   const TASKS_POLL_INTERVAL_MS = 4000;
   const TASKS_POLL_MAX_ATTEMPTS = 20;
   const VALIDATION_POLL_INTERVAL_MS = 1500;
-  const VALIDATION_POLL_MAX_ATTEMPTS = 40;
+  const VALIDATION_POLL_MAX_ATTEMPTS = 50;
 
   useEffect(() => {
     if (!projectId) return;
@@ -491,10 +495,9 @@ export default function OrderPage() {
     async (documentId: string): Promise<DocumentValidationStatus> => {
       let latest: DocumentValidationStatus | null = null;
       for (let attempt = 0; attempt < VALIDATION_POLL_MAX_ATTEMPTS; attempt += 1) {
-        const current = await getDocumentValidation(documentId);
-        latest = current;
-        if (current.status !== "pending") {
-          return current;
+        latest = await getDocumentValidation(documentId);
+        if (latest.status !== "pending") {
+          return latest;
         }
         await sleep(VALIDATION_POLL_INTERVAL_MS);
       }
@@ -509,14 +512,12 @@ export default function OrderPage() {
   const handleValidationOutcome = useCallback(
     (record: DocumentRecord, validation: DocumentValidationStatus) => {
       if (validation.status === "error") {
-        const issues =
-          validation.errors.length > 0
-            ? validation.errors
-            : [validation.summary || "Документ не прошел валидацию."];
+        const issues = toValidationIssues(validation);
         setValidationModal({
           tone: "error",
           title: "Акт не прошел валидацию",
           issues,
+          exportFileNamePrefix: "Результат_валидации_акта",
         });
         setValidationBanner({ tone: "error", text: "Акт отклонен валидатором." });
         setActs((prev) => prev.filter((act) => act.documentId !== record.documentId));
@@ -524,14 +525,12 @@ export default function OrderPage() {
       }
 
       if (validation.status === "warning") {
-        const issues =
-          validation.warnings.length > 0
-            ? validation.warnings
-            : [validation.summary || "В акте есть предупреждения."];
+        const issues = toValidationIssues(validation);
         setValidationModal({
           tone: "warning",
           title: "Акт загружен с предупреждениями",
           issues,
+          exportFileNamePrefix: "Результат_валидации_акта",
         });
         setValidationBanner({
           tone: "warning",
@@ -1379,24 +1378,13 @@ export default function OrderPage() {
       )}
 
       {validationModal && (
-        <div className="modal-overlay" onClick={() => setValidationModal(null)}>
-          <div
-            className={`modal-content validation-modal validation-modal--${validationModal.tone}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3>{validationModal.title}</h3>
-            <ul className="validation-issues-list">
-              {validationModal.issues.map((issue, index) => (
-                <li key={`${index}-${issue}`}>{issue}</li>
-              ))}
-            </ul>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-              <button type="button" className="secondary" onClick={() => setValidationModal(null)}>
-                Закрыть
-              </button>
-            </div>
-          </div>
-        </div>
+        <ValidationIssuesModal
+          tone={validationModal.tone}
+          title={validationModal.title}
+          issues={validationModal.issues}
+          exportFileNamePrefix={validationModal.exportFileNamePrefix}
+          onClose={() => setValidationModal(null)}
+        />
       )}
     </div>
   );

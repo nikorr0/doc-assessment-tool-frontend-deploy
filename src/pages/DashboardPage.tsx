@@ -1222,6 +1222,13 @@ export default function DashboardPage() {
                           },
                           colorSaturation: [0.35, 0.45],
                         },
+                        {
+                          color: ['#00AEFF', '#00A7F4','#009FE8','#0899DC','#008FD1'],
+                          colorMappingBy: 'value',
+                          itemStyle: {
+                            gapWidth: 1
+                          }
+                        },
                       ],
                       data: groupPersonTreemapData,
                     },

@@ -38,6 +38,17 @@ export type DocumentValidationStatus = {
   updatedAt: string;
 };
 
+export type ValidationIssueLevel = "error" | "warning";
+
+export type ValidationIssue = {
+  index: number;
+  level: ValidationIssueLevel;
+  message: string;
+  position: string;
+  rowContext: string;
+  errorCell: string;
+};
+
 export type GroupRecord = {
   groupId: string;
   groupName?: string | null;

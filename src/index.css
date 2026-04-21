@@ -434,6 +434,47 @@ button.secondary {
   color: #b91c1c;
 }
 
+.validation-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.validation-action-button {
+  transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.validation-action-button--excel {
+  background-color: #137537;
+  color: #fff;
+}
+
+.validation-action-button--excel:hover:not(:disabled) {
+  background-color: #0f6a31;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(19, 117, 55, 0.35);
+}
+
+.validation-action-button--excel:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(19, 117, 55, 0.25);
+}
+
+.validation-action-button--close {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.validation-action-button--close:hover:not(:disabled) {
+  background: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.validation-action-button--close:active:not(:disabled) {
+  transform: translateY(0);
+}
+
 .delete-confirm-button {
   background-color: #ef4444;
   color: #fff;
@@ -578,7 +619,7 @@ button.secondary {
 }
 
 .order-group-selector {
-  max-width: 360px;
+  max-width: 500px;
 }
 
 .dashboard-controls {

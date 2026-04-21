@@ -3,7 +3,9 @@ import type { ChangeEvent, FormEvent } from "react";
 import { getDocumentValidation, uploadAct, uploadOrder } from "../api/projects";
 import { getApiErrorMessage } from "../utils/error";
 import { sha256FileHex } from "../utils/hash";
-import type { DocumentRecord, DocumentValidationStatus } from "../types";
+import { toValidationIssues } from "../utils/validationIssues";
+import ValidationIssuesModal from "./ValidationIssuesModal";
+import type { DocumentRecord, DocumentValidationStatus, ValidationIssue } from "../types";
 
 type Props = {
   projectId: string;
@@ -26,7 +28,8 @@ type ValidationBanner = {
 type ValidationModal = {
   tone: "warning" | "error";
   title: string;
-  issues: string[];
+  issues: ValidationIssue[];
+  exportFileNamePrefix: string;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -52,10 +55,9 @@ export default function UploadForm({
   async function waitForValidation(documentId: string): Promise<DocumentValidationStatus> {
     let latest: DocumentValidationStatus | null = null;
     for (let attempt = 0; attempt < VALIDATION_POLL_MAX_ATTEMPTS; attempt += 1) {
-      const current = await getDocumentValidation(documentId);
-      latest = current;
-      if (current.status !== "pending") {
-        return current;
+      latest = await getDocumentValidation(documentId);
+      if (latest.status !== "pending") {
+        return latest;
       }
       await sleep(VALIDATION_POLL_INTERVAL_MS);
     }
@@ -71,25 +73,28 @@ export default function UploadForm({
     onValidationResolved?.(record, validation);
 
     if (validation.status === "error") {
-      const issues = validation.errors.length > 0 ? validation.errors : [validation.summary || "Обнаружены ошибки валидации."];
+      const issues = toValidationIssues(validation);
       setValidationModal({
         tone: "error",
         title: "Документ не прошел валидацию",
         issues,
+        exportFileNamePrefix: mode === "ORDER"
+          ? "Результат_валидации_приказа"
+          : "Результат_валидации_акта",
       });
       setValidationBanner({ tone: "error", text: "Документ отклонен валидатором." });
       return;
     }
 
     if (validation.status === "warning") {
-      const issues =
-        validation.warnings.length > 0
-          ? validation.warnings
-          : [validation.summary || "В документе есть предупреждения."];
+      const issues = toValidationIssues(validation);
       setValidationModal({
         tone: "warning",
         title: "Документ загружен с предупреждениями",
         issues,
+        exportFileNamePrefix: mode === "ORDER"
+          ? "Результат_валидации_приказа"
+          : "Результат_валидации_акта",
       });
       setValidationBanner({
         tone: "warning",
@@ -217,24 +222,13 @@ export default function UploadForm({
       )}
 
       {validationModal && (
-        <div className="modal-overlay" onClick={() => setValidationModal(null)}>
-          <div
-            className={`modal-content validation-modal validation-modal--${validationModal.tone}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3>{validationModal.title}</h3>
-            <ul className="validation-issues-list">
-              {validationModal.issues.map((issue, idx) => (
-                <li key={`${idx}-${issue}`}>{issue}</li>
-              ))}
-            </ul>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-              <button type="button" className="secondary" onClick={() => setValidationModal(null)}>
-                Закрыть
-              </button>
-            </div>
-          </div>
-        </div>
+        <ValidationIssuesModal
+          tone={validationModal.tone}
+          title={validationModal.title}
+          issues={validationModal.issues}
+          exportFileNamePrefix={validationModal.exportFileNamePrefix}
+          onClose={() => setValidationModal(null)}
+        />
       )}
     </form>
   );

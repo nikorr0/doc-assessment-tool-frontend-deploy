@@ -117,13 +117,15 @@ export default function ProjectPage() {
               </span>
             </div>
 
-            <div className="project-view-field">
-              <span className="project-view-label">Тег: </span>
-              {project.tag
-                ? <span className="tag-badge">#{project.tag}</span>
-                : <span style={{ color: "#94a3b8", fontSize: 14 }}>—</span>
-              }
-            </div>
+            {project.tag && (
+              <div className="project-view-field">
+                <span className="project-view-label">Тег: </span>
+                {project.tag
+                  ? <span className="tag-badge">#{project.tag}</span>
+                  : <span style={{ color: "#94a3b8", fontSize: 14 }}>—</span>
+                }
+              </div>
+            )}
 
             <div className="project-view-field">
               <span className="project-view-label">Дата создания: </span>
