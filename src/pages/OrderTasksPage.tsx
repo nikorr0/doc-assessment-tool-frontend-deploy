@@ -31,6 +31,10 @@ export default function OrderTasksPage() {
   const [groupFilter, setGroupFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+  const [deadlineSort, setDeadlineSort] = useState<"none" | "asc" | "desc">("none");
+  const [quarterFilter, setQuarterFilter] = useState<string>("all");
 
   useEffect(() => {
     const queryFromUrl = (searchParams.get("search") ?? "").trim();
@@ -172,9 +176,18 @@ export default function OrderTasksPage() {
     return "other";
   }, []);
 
+  const getQuarterKey = useCallback((deadline?: string | null): string => {
+    if (!deadline) return "none";
+    const d = new Date(deadline);
+    if (isNaN(d.getTime())) return "none";
+    const q = Math.floor(d.getMonth() / 3) + 1;
+    const y = d.getFullYear();
+    return `${y}-Q${q}`;
+  }, []);
+
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return tasks.filter(task => {
+    let result = tasks.filter(task => {
       const byGroup = groupFilter === "all" || task.groupId === groupFilter;
       const byStatus =
         statusFilter === "all" || getStatusFilterKey(task.status) === statusFilter;
@@ -182,9 +195,45 @@ export default function OrderTasksPage() {
         query.length === 0 ||
         (task.fullName ?? "").toLowerCase().includes(query) ||
         (task.taskText ?? "").toLowerCase().includes(query);
-      return byGroup && byStatus && bySearch;
+      // Новый фильтр: квартал
+      const byQuarter =
+        quarterFilter === "all" || getQuarterKey(task.deadline) === quarterFilter;
+      return byGroup && byStatus && bySearch && byQuarter;
     });
-  }, [tasks, groupFilter, statusFilter, searchQuery, getStatusFilterKey]);
+
+    // Сортировка по сроку выполнения
+    if (deadlineSort !== "none") {
+      result = [...result].sort((a, b) => {
+        const da = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+        const db = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+        return deadlineSort === "asc" ? da - db : db - da;
+      });
+    }
+
+    return result;
+  }, [tasks, groupFilter, statusFilter, searchQuery, quarterFilter, deadlineSort, getStatusFilterKey, getQuarterKey]);
+
+  // Сброс страницы при изменении фильтров
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filteredTasks]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
+
+  const paginatedTasks = useMemo(
+    () => filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredTasks, currentPage, pageSize]
+  );
+
+  // Вычисляем список кварталов из реальных дедлайнов для дропдауна
+  const availableQuarters = useMemo(() => {
+    const set = new Set<string>();
+    tasks.forEach(t => {
+      const q = getQuarterKey(t.deadline);
+      if (q !== "none") set.add(q);
+    });
+    return Array.from(set).sort();
+  }, [tasks, getQuarterKey]);
 
   const handleTaskStatusChange = useCallback(
     async (taskId: number, newStatus: string) => {
@@ -287,6 +336,31 @@ export default function OrderTasksPage() {
               <option value="completed">Выполнено</option>
             </select>
           </label>
+          <label className="form-field">
+            <span className="form-field-label">Квартал</span>
+            <select
+              className="form-control"
+              value={quarterFilter}
+              onChange={e => setQuarterFilter(e.target.value)}
+            >
+              <option value="all">Все кварталы</option>
+              {availableQuarters.map(q => (
+                <option key={q} value={q}>{q}</option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field">
+            <span className="form-field-label">Срок выполнения</span>
+            <select
+              className="form-control"
+              value={deadlineSort}
+              onChange={e => setDeadlineSort(e.target.value as "none" | "asc" | "desc")}
+            >
+              <option value="none">Без сортировки</option>
+              <option value="asc">По возрастанию</option>
+              <option value="desc">По убыванию</option>
+            </select>
+          </label>
           <label className="form-field form-field-search">
             <span className="form-field-label">Поиск</span>
             <input
@@ -308,6 +382,7 @@ export default function OrderTasksPage() {
           <div className="empty-state">По заданным фильтрам ничего не найдено.</div>
         )}
         {pageState === "idle" && filteredTasks.length > 0 && (
+          <>
           <table className="acts-table">
             <thead>
               <tr>
@@ -320,7 +395,7 @@ export default function OrderTasksPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredTasks.map(task => {
+              {paginatedTasks.map(task => {
                 const statusMeta = getTaskStatusMeta(task.status);
                 const professionalCheckedMeta = getTaskProfessionalCheckedMeta(
                   task.isProfessionalChecked
@@ -407,7 +482,61 @@ export default function OrderTasksPage() {
                 );
               })}
             </tbody>
-          </table>
+           </table>
+
+          {/* Пагинация */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+              Записей на странице:
+              <select
+                className="form-control"
+                style={{ width: "auto", padding: "2px 6px" }}
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: "4px 10px", fontSize: 13 }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(1)}
+              >«</button>
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: "4px 10px", fontSize: 13 }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              >‹</button>
+              <span style={{ fontSize: 13, minWidth: 80, textAlign: "center" }}>
+                Стр. {currentPage} из {totalPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: "4px 10px", fontSize: 13 }}
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              >›</button>
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: "4px 10px", fontSize: 13 }}
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(totalPages)}
+              >»</button>
+            </div>
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              Показано {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredTasks.length)} из {filteredTasks.length}
+            </span>
+          </div>
+          </>
         )}
       </div>
     </div>
