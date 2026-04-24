@@ -25,6 +25,31 @@ export type DocumentRecord = {
   quarterYear?: number | null;
 };
 
+export type GroupTableRawPayload = {
+  type: "group_table";
+  group_name?: string;
+  group_id?: string;
+  data?: Record<string, Record<string, string>>;
+};
+
+export type PerformanceTableRow = Record<string, string>;
+
+export type PerformanceTableRawPayload = {
+  type: "performance_table";
+  section_title?: string;
+  row_count?: number;
+  data: PerformanceTableRow[];
+};
+
+export type OrderRawPayloadItem = GroupTableRawPayload | PerformanceTableRawPayload;
+
+export type OrderRawResponse = {
+  projectId: string;
+  orderId: string;
+  raw: OrderRawPayloadItem[];
+  createdAt?: string | null;
+};
+
 export type DocumentValidationStatus = {
   documentId: string;
   projectId?: string | null;
@@ -75,6 +100,10 @@ export type TaskRecord = {
   taskText?: string | null;
   units?: string | null;
   taskReport?: string | null;
+  actTaskText?: string | null;
+  actUnits?: string | null;
+  actTaskAnnotation?: string | null;
+  actDeadlineDate?: string | null;
   deadline?: string | null;
   status?: string | null;
   isProfessionalChecked?: boolean;
@@ -85,6 +114,21 @@ export type GroupTasks = {
   groupId: string;
   groupName?: string | null;
   tasks: TaskRecord[];
+};
+
+export type TaskStatusHistorySource = "manual" | "auto";
+
+export type TaskStatusHistoryRecord = {
+  id: string;
+  orderId: string;
+  taskId: number;
+  groupId?: string | null;
+  fullName?: string | null;
+  taskText?: string | null;
+  oldStatus?: string | null;
+  newStatus: string;
+  source: TaskStatusHistorySource;
+  changedAt?: string | null;
 };
 
 export type DashboardQuarterStat = {

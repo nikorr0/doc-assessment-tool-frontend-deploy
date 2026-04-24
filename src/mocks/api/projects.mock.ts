@@ -11,8 +11,10 @@ import type {
   DocumentRecord,
   GroupRecord,
   GroupTasks,
+  OrderRawResponse,
   Project,
   TaskRecord,
+  TaskStatusHistoryRecord,
   TemplateRecord,
 } from "../../types";
 import { getDb, getOrderYearKey, type DocumentValidationMockState } from "../store/db";
@@ -371,6 +373,59 @@ function getOrderTasks(orderId: string): TaskRecord[] {
   return Object.values(tasksByGroup).flat();
 }
 
+/** Демонстрационные записи для блока «История изменения статусов» в прототипе. */
+function buildMockTaskStatusHistoryForOrder(orderId: string): TaskStatusHistoryRecord[] {
+  const tasks = getOrderTasks(orderId)
+    .slice()
+    .sort((a, b) => a.taskId - b.taskId);
+  if (tasks.length === 0) {
+    return [];
+  }
+
+  type Template = {
+    taskIndex: number;
+    oldStatus: string;
+    newStatus: string;
+    source: TaskStatusHistoryRecord["source"];
+    minutesAgo: number;
+  };
+
+  const templates: Template[] = [
+    { taskIndex: 0, oldStatus: "Не выполнено", newStatus: "В работе", source: "manual", minutesAgo: 28 },
+    { taskIndex: 1, oldStatus: "В работе", newStatus: "Выполнено", source: "auto", minutesAgo: 52 },
+    { taskIndex: 2, oldStatus: "Не выполнено", newStatus: "В работе", source: "auto", minutesAgo: 95 },
+    { taskIndex: 0, oldStatus: "В работе", newStatus: "Выполнено", source: "manual", minutesAgo: 140 },
+    { taskIndex: 3, oldStatus: "Выполнено", newStatus: "В работе", source: "manual", minutesAgo: 210 },
+    { taskIndex: 4, oldStatus: "Не выполнено", newStatus: "Выполнено", source: "auto", minutesAgo: 360 },
+  ];
+
+  const base = Date.now();
+  const records: TaskStatusHistoryRecord[] = templates.map((tpl, seq) => {
+    const task = tasks[tpl.taskIndex % tasks.length];
+    const changedAt = new Date(base - tpl.minutesAgo * 60 * 1000).toISOString();
+    return {
+      id: `mock-status-history-${orderId}-${seq}`,
+      orderId,
+      taskId: task.taskId,
+      groupId: task.groupId,
+      fullName: task.fullName,
+      taskText: task.taskText,
+      oldStatus: tpl.oldStatus,
+      newStatus: tpl.newStatus,
+      source: tpl.source,
+      changedAt,
+    };
+  });
+
+  records.sort((a, b) => {
+    const ta = a.changedAt ?? "";
+    const tb = b.changedAt ?? "";
+    return tb.localeCompare(ta);
+  });
+
+  return records;
+}
+
 function buildQuarterStats(tasks: TaskRecord[]): DashboardQuarterStat[] {
   const quarters: DashboardQuarterStat[] = [1, 2, 3, 4].map(quarter => {
     const quarterTasks = tasks.filter(task => getTaskQuarter(task.deadline) === quarter);
@@ -723,7 +778,7 @@ function createStarterActs(orderId: string, projectId: string, groups: GroupReco
       type: "ACT",
       fileName: `Акт_${groupIndex + 1}_${quarter}кв.docx`,
       fileRef: `/mock-files/acts/${orderId}-${group.groupId}-q${quarter}.docx`,
-      status: "processed",
+      status: "stored",
       uploadedAt: nowIso(),
       groupId: group.groupId,
       quarterYear: quarter,
@@ -851,7 +906,7 @@ export async function uploadOrder(projectId: string, file: File): Promise<Docume
     type: "ORDER",
     fileName: file.name,
     fileRef: `/mock-files/orders/${orderId}/${encodeURIComponent(file.name)}`,
-    status: "processed",
+    status: "stored",
     uploadedAt,
   };
   db.ordersByProjectId[projectId] = [order, ...(db.ordersByProjectId[projectId] ?? [])];
@@ -873,6 +928,17 @@ export async function uploadOrder(projectId: string, file: File): Promise<Docume
 export async function getOrder(projectId: string, orderId: string): Promise<DocumentRecord> {
   await withNetworkDelay();
   return deepClone(ensureOrder(projectId, orderId));
+}
+
+export async function getOrderRaw(projectId: string, orderId: string): Promise<OrderRawResponse> {
+  await withNetworkDelay();
+  ensureOrder(projectId, orderId);
+  return {
+    projectId,
+    orderId,
+    raw: [],
+    createdAt: nowIso(),
+  };
 }
 
 export async function getDocumentValidation(
@@ -990,7 +1056,7 @@ export async function uploadAct(
   if (existing) {
     existing.fileName = file.name;
     existing.fileRef = `/mock-files/acts/${existing.documentId}/${encodeURIComponent(file.name)}`;
-    existing.status = "processed";
+    existing.status = "stored";
     existing.uploadedAt = now;
     existing.type = "ACT";
     db.documentValidationById[existing.documentId] = createDocumentValidationState(existing);
@@ -1004,7 +1070,7 @@ export async function uploadAct(
     type: "ACT",
     fileName: file.name,
     fileRef: `/mock-files/acts/${orderId}/${encodeURIComponent(file.name)}`,
-    status: "processed",
+    status: "stored",
     uploadedAt: now,
     groupId,
     quarterYear,
@@ -1083,6 +1149,22 @@ export async function generateTemplate(
   touchGroupTaskAsCompleted(orderId, groupId);
 }
 
+export async function deleteTemplate(
+  projectId: string,
+  orderId: string,
+  templateId: string
+): Promise<void> {
+  await withNetworkDelay();
+  ensureOrder(projectId, orderId);
+  const db = getDb();
+  const templates = db.templatesByOrderId[orderId] ?? [];
+  const initialLength = templates.length;
+  db.templatesByOrderId[orderId] = templates.filter(t => t.id !== templateId);
+  if (db.templatesByOrderId[orderId].length === initialLength) {
+    throw new Error("Шаблон не найден");
+  }
+}
+
 export async function listGroupTasks(
   projectId: string,
   orderId: string,
@@ -1116,6 +1198,25 @@ export async function updateTaskStatus(
     throw new Error("Задача не найдена");
   }
   target.status = status;
+}
+
+export async function listTaskStatusHistory(
+  projectId: string,
+  orderId: string
+): Promise<TaskStatusHistoryRecord[]> {
+  await withNetworkDelay();
+  ensureOrder(projectId, orderId);
+  return deepClone(buildMockTaskStatusHistoryForOrder(orderId));
+}
+
+export async function undoTaskStatus(
+  projectId: string,
+  orderId: string,
+  taskId: number,
+  status: string
+): Promise<void> {
+  await withNetworkDelay();
+  await updateTaskStatus(projectId, orderId, taskId, status);
 }
 
 export async function updateTaskProfessionalChecked(

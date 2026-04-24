@@ -50,8 +50,8 @@ export async function exportValidationIssuesToExcel(
   headerRow.font = { bold: true };
   headerRow.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
 
-  worksheet.eachRow((row, rowNumber) => {
-    row.eachCell((cell, colNumber) => {
+  worksheet.eachRow((row: ExcelJS.Row, rowNumber: number) => {
+    row.eachCell((cell: ExcelJS.Cell, colNumber: number) => {
       const isHeader = rowNumber === 1;
       const isDescription = colNumber === 4;
       cell.border = {

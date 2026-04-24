@@ -4,10 +4,12 @@ import type {
   DashboardInfographicsResponse,
   Project,
   DocumentRecord,
+  OrderRawResponse,
   DocumentValidationStatus,
   GroupRecord,
   TemplateRecord,
   GroupTasks,
+  TaskStatusHistoryRecord,
   DashboardStats,
 } from "../types";
 
@@ -60,6 +62,11 @@ export async function getOrder(projectId: string, orderId: string): Promise<Docu
   return res.data;
 }
 
+export async function getOrderRaw(projectId: string, orderId: string): Promise<OrderRawResponse> {
+  const res = await api.get(`/projects/${projectId}/orders/${orderId}/raw`);
+  return res.data;
+}
+
 export async function getDocumentValidation(
   documentId: string
 ): Promise<DocumentValidationStatus> {
@@ -108,6 +115,14 @@ export async function listTemplates(projectId: string, orderId: string): Promise
   return res.data;
 }
 
+export async function deleteTemplate(
+  projectId: string,
+  orderId: string,
+  templateId: string
+): Promise<void> {
+  await api.delete(`/projects/${projectId}/orders/${orderId}/templates/${templateId}`);
+}
+
 export async function generateTemplate(
   projectId: string,
   orderId: string,
@@ -150,6 +165,27 @@ export async function updateTaskProfessionalChecked(
 ): Promise<void> {
   await api.put(`/projects/${projectId}/orders/${orderId}/tasks/${taskId}/professional-check`, {
     is_professional_checked: isProfessionalChecked,
+  });
+}
+
+export async function listTaskStatusHistory(
+  projectId: string,
+  orderId: string
+): Promise<TaskStatusHistoryRecord[]> {
+  const res = await api.get(`/projects/${projectId}/orders/${orderId}/tasks/status-history`, {
+    timeout: DASHBOARD_REQUEST_TIMEOUT_MS,
+  });
+  return res.data;
+}
+
+export async function undoTaskStatus(
+  projectId: string,
+  orderId: string,
+  taskId: number,
+  status: string
+): Promise<void> {
+  await api.put(`/projects/${projectId}/orders/${orderId}/tasks/${taskId}/status/undo`, {
+    status,
   });
 }
 
