@@ -6,6 +6,7 @@ import {
   getOrderInfographics,
   getProject,
 } from "../api/projects";
+import { StatusBar, StatusBarDot } from "../components/StatusBar";
 import { getApiErrorMessage } from "../utils/error";
 import type {
   ArticleSankeyData,
@@ -1347,7 +1348,7 @@ export default function DashboardPage() {
       <h1 className="page-title">Инфографика приказа "{order?.fileName.split(".")[0] ?? "—"}"</h1>
       <p className="subtitle">Проект "{project?.name ?? "—"}"</p>
 
-      <div className="card">
+      <div className="dashboard-card">
         <div className="dashboard-controls">
           <label className="form-field dashboard-group-filter">
             <span className="form-field-label">Срез</span>
@@ -1413,33 +1414,6 @@ export default function DashboardPage() {
         )}
         {statsState === "idle" && stats && stats.groups.length > 0 && sortedAvailableYears.length === 0 && (
           <div className="empty-state">Нет задач с указанным годом.</div>
-        )}
-        {statsState === "idle" &&
-          stats &&
-          stats.groups.length > 0 &&
-          sortedAvailableYears.length > 0 && (
-          <div className="dashboard-summary">
-            <div>
-              <span>Всего задач</span>
-              <strong>{summary.total}</strong>
-            </div>
-            <div>
-              <span>Выполнено</span>
-              <strong>{summary.completed}</strong>
-            </div>
-            <div>
-              <span>Не выполнено</span>
-              <strong>{summary.notCompleted}</strong>
-            </div>
-            <div>
-              <span>Не проверено</span>
-              <strong>{summary.unverified}</strong>
-            </div>
-            <div>
-              <span>% выполнения</span>
-              <strong>{summary.completionRate}%</strong>
-            </div>
-          </div>
         )}
       </div>
 
@@ -1512,6 +1486,33 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {statsState === "idle" &&
+        stats &&
+        stats.groups.length > 0 &&
+        sortedAvailableYears.length > 0 && (
+          <StatusBar multiline>
+            <span>
+              Всего задач: <strong>{summary.total}</strong>
+            </span>
+            <StatusBarDot />
+            <span style={{ color: "#288d4f" }}>
+              Выполнено: <strong>{summary.completed}</strong>
+            </span>
+            <StatusBarDot />
+            <span style={{ color: "#64748b" }}>
+              Не выполнено: <strong>{summary.notCompleted}</strong>
+            </span>
+            <StatusBarDot />
+            <span style={{ color: "#a1781e" }}>
+              Не проверено: <strong>{summary.unverified}</strong>
+            </span>
+            <StatusBarDot />
+            <span style={{ color: "#3b64d4" }}>
+              % выполнения: <strong>{summary.completionRate}%</strong>
+            </span>
+          </StatusBar>
+        )}
     </div>
   );
 }

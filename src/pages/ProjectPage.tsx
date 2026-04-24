@@ -1,10 +1,30 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import UploadForm from "../components/UploadForm";
+import { StatusBar } from "../components/StatusBar";
 import { getProject, listOrders, deleteOrder } from "../api/projects";
 import type { DocumentRecord, DocumentValidationStatus, Project } from "../types";
 
 type LoadState = "idle" | "loading" | "error";
+
+function getDocumentStatusLabel(status?: string | null): string {
+  const normalized = (status ?? "").trim().toLowerCase();
+  const labels: Record<string, string> = {
+    pending: "Ожидает проверки",
+    processing: "В обработке",
+    ready: "Готово",
+    success: "Готово",
+    warning: "С предупреждениями",
+    validation_warning: "С предупреждениями",
+    error: "Ошибка",
+    failed: "Ошибка",
+    uploaded: "Загружен",
+    completed: "Завершен",
+    done: "Завершен",
+    stored: "Сохранен",
+  };
+  return labels[normalized] ?? (status?.trim() || "—");
+}
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -100,7 +120,7 @@ export default function ProjectPage() {
   }
 
   return (
-    <div>
+    <div className="project-page">
       <Link to="/projects" className="back-link">
         &larr; Все проекты
       </Link>
@@ -198,7 +218,7 @@ export default function ProjectPage() {
                     )}
                   </td>
                   <td>
-                    <span className="status-badge">{order.status}</span>
+                    <span className="status-badge">{getDocumentStatusLabel(order.status)}</span>
                   </td>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
@@ -274,6 +294,14 @@ export default function ProjectPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {ordersState === "idle" && projectState === "idle" && project && (
+        <StatusBar>
+          <span>
+            Загружено приказов: <strong>{orders.length}</strong>
+          </span>
+        </StatusBar>
       )}
     </div>
   );
