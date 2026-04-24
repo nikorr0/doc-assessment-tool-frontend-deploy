@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { createProject, listProjects, deleteProject, updateProject } from "../api/projects";
+import { StatusBar, StatusBarDot } from "../components/StatusBar";
 import type { Project, ProjectStatus } from "../types";
 
 type LoadState = "idle" | "loading" | "error";
@@ -542,15 +543,23 @@ const orderedProjects = useMemo(() => {
       )}
 
       {loading === "idle" && projects.length > 0 && (
-        <div className="status-bar">
-          <span>Всего: <strong>{stats.total}</strong></span>
-          <span className="status-bar__dot" />
-          <span style={{ color: "#3b64d4" }}>Планируется: <strong>{stats.planned}</strong></span>
-          <span className="status-bar__dot" />
-          <span style={{ color: "#a1781e" }}>В работе: <strong>{stats.inProgress}</strong></span>
-          <span className="status-bar__dot" />
-          <span style={{ color: "#288d4f" }}>Завершено: <strong>{stats.completed}</strong></span>
-        </div>
+        <StatusBar>
+          <span>
+            Всего: <strong>{stats.total}</strong>
+          </span>
+          <StatusBarDot />
+          <span style={{ color: "#3b64d4" }}>
+            Планируется: <strong>{stats.planned}</strong>
+          </span>
+          <StatusBarDot />
+          <span style={{ color: "#a1781e" }}>
+            В работе: <strong>{stats.inProgress}</strong>
+          </span>
+          <StatusBarDot />
+          <span style={{ color: "#288d4f" }}>
+            Завершено: <strong>{stats.completed}</strong>
+          </span>
+        </StatusBar>
       )}
 
     </div>
