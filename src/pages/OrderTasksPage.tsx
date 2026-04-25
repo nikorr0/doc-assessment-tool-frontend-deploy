@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams, useParams } from "react-router-dom";
 import {
   getOrder,
@@ -10,7 +10,6 @@ import {
 } from "../api/projects";
 import { getApiErrorMessage } from "../utils/error";
 import type { DocumentRecord, GroupRecord, Project, TaskRecord } from "../types";
-import { TaskReportPanelRow, TaskTextWithReportToggle } from "../components/TaskReportToggle";
 
 type LoadState = "idle" | "loading" | "error";
 
@@ -32,7 +31,10 @@ export default function OrderTasksPage() {
   const [groupFilter, setGroupFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [expandedReportTaskKey, setExpandedReportTaskKey] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+  const [deadlineSort, setDeadlineSort] = useState<"none" | "asc" | "desc">("none");
+  const [quarterFilter, setQuarterFilter] = useState<string>("all");
 
   useEffect(() => {
     const queryFromUrl = (searchParams.get("search") ?? "").trim();
@@ -174,9 +176,18 @@ export default function OrderTasksPage() {
     return "other";
   }, []);
 
+  const getQuarterKey = useCallback((deadline?: string | null): string => {
+    if (!deadline) return "none";
+    const d = new Date(deadline);
+    if (isNaN(d.getTime())) return "none";
+    const q = Math.floor(d.getMonth() / 3) + 1;
+    const y = d.getFullYear();
+    return `${y}-Q${q}`;
+  }, []);
+
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return tasks.filter(task => {
+    let result = tasks.filter(task => {
       const byGroup = groupFilter === "all" || task.groupId === groupFilter;
       const byStatus =
         statusFilter === "all" || getStatusFilterKey(task.status) === statusFilter;
@@ -184,11 +195,41 @@ export default function OrderTasksPage() {
         query.length === 0 ||
         (task.fullName ?? "").toLowerCase().includes(query) ||
         (task.taskText ?? "").toLowerCase().includes(query);
-      return byGroup && byStatus && bySearch;
+      const byQuarter =
+        quarterFilter === "all" || getQuarterKey(task.deadline) === quarterFilter;
+      return byGroup && byStatus && bySearch && byQuarter;
     });
-  }, [tasks, groupFilter, statusFilter, searchQuery, getStatusFilterKey]);
 
-  const taskRowKey = useCallback((task: TaskWithGroup) => `${task.groupId}-${task.taskId}`, []);
+    if (deadlineSort !== "none") {
+      result = [...result].sort((a, b) => {
+        const da = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+        const db = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+        return deadlineSort === "asc" ? da - db : db - da;
+      });
+    }
+
+    return result;
+  }, [tasks, groupFilter, statusFilter, searchQuery, quarterFilter, deadlineSort, getStatusFilterKey, getQuarterKey]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filteredTasks]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
+
+  const paginatedTasks = useMemo(
+    () => filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredTasks, currentPage, pageSize]
+  );
+
+  const availableQuarters = useMemo(() => {
+    const set = new Set<string>();
+    tasks.forEach(t => {
+      const q = getQuarterKey(t.deadline);
+      if (q !== "none") set.add(q);
+    });
+    return Array.from(set).sort();
+  }, [tasks, getQuarterKey]);
 
   const handleTaskStatusChange = useCallback(
     async (taskId: number, newStatus: string) => {
@@ -291,6 +332,31 @@ export default function OrderTasksPage() {
               <option value="completed">Выполнено</option>
             </select>
           </label>
+          <label className="form-field">
+            <span className="form-field-label">Квартал</span>
+            <select
+              className="form-control"
+              value={quarterFilter}
+              onChange={e => setQuarterFilter(e.target.value)}
+            >
+              <option value="all">Все кварталы</option>
+              {availableQuarters.map(q => (
+                <option key={q} value={q}>{q}</option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field">
+            <span className="form-field-label">Срок выполнения</span>
+            <select
+              className="form-control"
+              value={deadlineSort}
+              onChange={e => setDeadlineSort(e.target.value as "none" | "asc" | "desc")}
+            >
+              <option value="none">Без сортировки</option>
+              <option value="asc">По возрастанию</option>
+              <option value="desc">По убыванию</option>
+            </select>
+          </label>
           <label className="form-field form-field-search">
             <span className="form-field-label">Поиск</span>
             <input
@@ -313,136 +379,158 @@ export default function OrderTasksPage() {
         )}
         {pageState === "idle" && filteredTasks.length > 0 && (
           <>
-            <table className="acts-table">
-              <thead>
-                <tr>
-                  <th>Группа</th>
-                  <th>ФИО</th>
-                  <th>Задача</th>
-                  <th>Ед. измерения</th>
-                  <th>Срок выполнения</th>
-                  <th style={{ width: 220 }}>Статус</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTasks.map(task => {
-                  const statusMeta = getTaskStatusMeta(task.status);
-                  const professionalCheckedMeta = getTaskProfessionalCheckedMeta(
-                    task.isProfessionalChecked
-                  );
-                  const isUpdating = updatingTaskId === task.taskId;
-                  const isUpdatingProfessionalChecked =
-                    updatingTaskProfessionalCheckedId === task.taskId;
-                  const rowKey = taskRowKey(task);
-                  const reportText = (task.taskReport ?? "").trim();
-                  const annotationText = (task.actTaskAnnotation ?? "").trim();
-                  const hasReport = Boolean(reportText);
-                  const hasAnnotation = Boolean(annotationText);
-                  const isReportExpanded = expandedReportTaskKey === rowKey;
-                  return (
-                    <Fragment key={rowKey}>
-                      <tr>
-                        <td>{resolveGroupLabel(task)}</td>
-                        <td>{task.fullName || "—"}</td>
-                        <td>
-                          <TaskTextWithReportToggle
-                            taskText={task.taskText}
-                            reportText={task.taskReport}
-                            annotationText={task.actTaskAnnotation}
-                            expanded={isReportExpanded}
-                            onToggle={() =>
-                              setExpandedReportTaskKey(prev => (prev === rowKey ? null : rowKey))
-                            }
-                          />
-                        </td>
-                        <td>{task.units || "—"}</td>
-                        <td>{formatDeadline(task.deadline)}</td>
-                        <td>
-                          <div
+          <table className="acts-table">
+            <thead>
+              <tr>
+                <th>Группа</th>
+                <th>ФИО</th>
+                <th>Задача</th>
+                <th>Ед. измерения</th>
+                <th>Срок выполнения</th>
+                <th style={{ width: 220 }}>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedTasks.map(task => {
+                const statusMeta = getTaskStatusMeta(task.status);
+                const professionalCheckedMeta = getTaskProfessionalCheckedMeta(
+                  task.isProfessionalChecked
+                );
+                const isUpdating = updatingTaskId === task.taskId;
+                const isUpdatingProfessionalChecked =
+                  updatingTaskProfessionalCheckedId === task.taskId;
+                return (
+                  <tr key={`${task.groupId}-${task.taskId}`}>
+                    <td>{resolveGroupLabel(task)}</td>
+                    <td>{task.fullName || "—"}</td>
+                    <td>{task.taskText || "—"}</td>
+                    <td>{task.units || "—"}</td>
+                    <td>{formatDeadline(task.deadline)}</td>
+                    <td>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <div>
+                          <select
+                            value={task.status || "Не выполнено"}
+                            onChange={e => handleTaskStatusChange(task.taskId, e.target.value)}
+                            disabled={isUpdating}
                             style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "center",
-                              gap: 6,
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              fontWeight: 600,
+                              fontSize: 13,
+                              backgroundColor: statusMeta.background,
+                              color: statusMeta.color,
+                              border: `1px solid ${statusMeta.color}`,
+                              cursor: isUpdating ? "wait" : "pointer",
+                              minWidth: 140,
                             }}
                           >
-                            <div>
-                              <select
-                                value={task.status || "Не выполнено"}
-                                onChange={e => handleTaskStatusChange(task.taskId, e.target.value)}
-                                disabled={isUpdating}
-                                style={{
-                                  padding: "4px 8px",
-                                  borderRadius: 6,
-                                  fontWeight: 600,
-                                  fontSize: 13,
-                                  backgroundColor: statusMeta.background,
-                                  color: statusMeta.color,
-                                  border: `1px solid ${statusMeta.color}`,
-                                  cursor: isUpdating ? "wait" : "pointer",
-                                  minWidth: 140,
-                                }}
-                              >
-                                <option value="Не выполнено">Не выполнено</option>
-                                <option value="В работе">В работе</option>
-                                <option value="Выполнено">Выполнено</option>
-                              </select>
-                              {isUpdating && (
-                                <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>
-                                  Сохранение...
-                                </span>
-                              )}
-                            </div>
-                            <div>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleTaskProfessionalCheckedChange(
-                                    task.taskId,
-                                    !task.isProfessionalChecked
-                                  )
-                                }
-                                disabled={isUpdatingProfessionalChecked}
-                                style={{
-                                  padding: "4px 8px",
-                                  borderRadius: 6,
-                                  fontWeight: 600,
-                                  fontSize: 13,
-                                  backgroundColor: professionalCheckedMeta.background,
-                                  color: professionalCheckedMeta.color,
-                                  border: `1px solid ${professionalCheckedMeta.borderColor}`,
-                                  cursor: isUpdatingProfessionalChecked ? "wait" : "pointer",
-                                  minWidth: 140,
-                                }}
-                              >
-                                {task.isProfessionalChecked ? "Проверено" : "Не проверено"}
-                              </button>
-                              {isUpdatingProfessionalChecked && (
-                                <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>
-                                  Сохранение...
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                      {(hasReport || hasAnnotation) && isReportExpanded && (
-                        <TaskReportPanelRow
-                          reportText={reportText}
-                          annotationText={annotationText}
-                          colSpan={6}
-                        />
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: "#64748b" }}>
-                Показано {filteredTasks.length} из {tasks.length}
+                            <option value="Не выполнено">Не выполнено</option>
+                            <option value="В работе">В работе</option>
+                            <option value="Выполнено">Выполнено</option>
+                          </select>
+                          {isUpdating && (
+                            <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>
+                              Сохранение...
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleTaskProfessionalCheckedChange(
+                                task.taskId,
+                                !task.isProfessionalChecked
+                              )
+                            }
+                            disabled={isUpdatingProfessionalChecked}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              fontWeight: 600,
+                              fontSize: 13,
+                              backgroundColor: professionalCheckedMeta.background,
+                              color: professionalCheckedMeta.color,
+                              border: `1px solid ${professionalCheckedMeta.borderColor}`,
+                              cursor: isUpdatingProfessionalChecked ? "wait" : "pointer",
+                              minWidth: 140,
+                            }}
+                          >
+                            {task.isProfessionalChecked ? "Проверено" : "Не проверено"}
+                          </button>
+                          {isUpdatingProfessionalChecked && (
+                            <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>
+                              Сохранение...
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+           </table>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+              Записей на странице:
+              <select
+                className="form-control"
+                style={{ width: "auto", padding: "2px 6px" }}
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: "4px 10px", fontSize: 13 }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(1)}
+              >«</button>
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: "4px 10px", fontSize: 13 }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              >‹</button>
+              <span style={{ fontSize: 13, minWidth: 80, textAlign: "center" }}>
+                Стр. {currentPage} из {totalPages}
               </span>
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: "4px 10px", fontSize: 13 }}
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              >›</button>
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: "4px 10px", fontSize: 13 }}
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(totalPages)}
+              >»</button>
             </div>
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              Показано {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredTasks.length)} из {filteredTasks.length}
+            </span>
+          </div>
           </>
         )}
       </div>
