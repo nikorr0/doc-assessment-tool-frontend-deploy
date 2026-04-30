@@ -221,37 +221,62 @@ export default function ProjectPage() {
                     <span className="status-badge">{getDocumentStatusLabel(order.status)}</span>
                   </td>
                   <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-                      <Link to={`/projects/${projectId}/${order.documentId}`} className="open-button">
-                        Открыть
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}> 
+                      <Link
+                        to={`/projects/${projectId}/${order.documentId}`}
+                        title="Открыть приказ"
+                        className="icon-btn icon-btn--open"
+                        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#2563eb", textDecoration: "none" }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                          <polyline points="15 3 21 3 21 9"/>
+                          <line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
                       </Link>
                       <Link
                         to={`/projects/${projectId}/${order.documentId}/dashboard`}
-                        className="info-button"
+                        title="Инфографика приказа"
+                        className="icon-btn icon-btn--dashboard"
+                        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#4f46e5", textDecoration: "none" }}
                       >
-                        Инфографика
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="20" x2="18" y2="10"/>
+                          <line x1="12" y1="20" x2="12" y2="4"/>
+                          <line x1="6" y1="20" x2="6" y2="14"/>
+                        </svg>
                       </Link>
                       {order.fileRef && (
                         <a
                           href={order.fileRef}
                           target="_blank"
                           rel="noreferrer"
-                          className="download-button"
+                          title="Скачать приказ"
+                          className="icon-btn icon-btn--download"
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#16a34a", textDecoration: "none" }}
                         >
-                          Скачать
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                          </svg>
                         </a>
                       )}
+
                       <button
                         type="button"
-                        className="delete-order-button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setOrderToDelete(order);
-                        }}
-                        aria-label="Удалить приказ"
+                        title="Удалить приказ"
+                        className="icon-btn icon-btn--delete"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOrderToDelete(order); }}
+                        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", padding: 0 }}
                       >
-                        Удалить
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6"/>
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                          <line x1="10" y1="11" x2="10" y2="17"/>
+                          <line x1="14" y1="11" x2="14" y2="17"/>
+                          <path d="M9 6V4h6v2"/>
+                        </svg>
                       </button>
                     </div>
                   </td>

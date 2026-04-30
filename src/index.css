@@ -771,54 +771,40 @@ button.secondary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
-  background-color: #13883e;
-  color: #fff;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #16a34a;
   text-decoration: none;
-  font-size: 14px;
-  font-weight: 600;
-  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-  border: none;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .download-button:hover {
-  background-color: #137537;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(22, 163, 74, 0.3);
-}
-
-.download-button:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(22, 163, 74, 0.2);
+  background: #f0fdf4;
+  border-color: #bbf7d0;
 }
 
 .delete-order-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 9px 7px;
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
-  background-color: #ef4444;
-  color: #fff;
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 600;
-  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-  border: none;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #ef4444;
+  padding: 0;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .delete-order-button:hover {
-  background-color: #dc2626;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
-}
-
-.delete-order-button:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
+  background: #fef2f2;
+  border-color: #fca5a5;
 }
 
 .delete-project-button {
@@ -1704,3 +1690,34 @@ button.secondary {
   flex: 0 1 auto;
   white-space: nowrap;
 }
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0 !important;
+  background: #fff !important;
+  padding: 0 !important;
+  cursor: pointer;
+  font-size: unset !important;
+  font-weight: unset !important;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.icon-btn--download { color: #16a34a; }
+.icon-btn--delete { color: #ef4444; }
+
+.icon-btn {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.icon-btn--open:hover       { background: #eff6ff; border-color: #bfdbfe; }
+.icon-btn--dashboard:hover  { background: #eef2ff; border-color: #c7d2fe; }
+.icon-btn--download:hover   { background: #f0fdf4; border-color: #bbf7d0; }
+.icon-btn--delete:hover     { background: #fef2f2; border-color: #fca5a5; }
