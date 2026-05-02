@@ -79,6 +79,7 @@ function getDocumentStatusLabel(status?: string | null): string {
     completed: "Завершен",
     done: "Завершен",
     stored: "Сохранен",
+    processed: "Обработан",
   };
   return labels[normalized] ?? (status?.trim() || "—");
 }
@@ -1160,7 +1161,7 @@ export default function OrderPage() {
             background: "#2563eb",
             color: "#fff",
             fontWeight: 700,
-            fontSize: 14,
+            fontSize: 16,
             textDecoration: "none",
             flexShrink: 0,
             transition: "background 0.15s",
@@ -1183,8 +1184,8 @@ export default function OrderPage() {
               borderRadius: 8,
               background: activeSection === id ? "#dbeafe" : "transparent",
               color: activeSection === id ? "#1d4ed8" : "#475569",
-              fontWeight: activeSection === id ? 600 : 400,
-              fontSize: 14,
+              fontWeight: activeSection === id ? 700 : 600,
+              fontSize: 16,
               textDecoration: "none",
               border: activeSection === id ? "1px solid #bfdbfe" : "1px solid transparent",
               transition: "all 0.15s",
@@ -1219,7 +1220,7 @@ export default function OrderPage() {
                   <td>
                     <span className="status-badge">{getDocumentStatusLabel(order.status)}</span>
                   </td>
-                  <td>{order.uploadedAt ? new Date(order.uploadedAt).toLocaleString("ru-RU") : "—"}</td>
+                  <td>{order.uploadedAt ? new Date(order.uploadedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                 </tr>
               </tbody>
             </table>
