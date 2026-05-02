@@ -872,7 +872,7 @@ export default function OrderPage() {
     if (Number.isNaN(parsed.getTime())) {
       return value;
     }
-    return parsed.toLocaleString("ru-RU");
+    return parsed.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
   }, []);
 
   const handleUndoFromHistory = useCallback(
@@ -1208,7 +1208,7 @@ export default function OrderPage() {
                 <tr>
                   <td>
                     <div className="order-info-file-cell">
-                      <div className="order-info-file-name">{order.fileName}</div>
+                      <div className="order-info-file-name">{formatFileName(order.fileName, 50)}</div>
                     </div>
                   </td>
                   <td>
