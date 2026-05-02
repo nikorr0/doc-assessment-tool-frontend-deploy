@@ -168,6 +168,27 @@ export async function updateTaskProfessionalChecked(
   });
 }
 
+export type BulkTaskProfessionalCheckedResult = {
+  order_id: string;
+  is_professional_checked: boolean;
+  requested_count: number;
+  updated_count: number;
+  updated_task_ids: number[];
+};
+
+export async function updateTasksProfessionalCheckedBulk(
+  projectId: string,
+  orderId: string,
+  taskIds: number[],
+  isProfessionalChecked: boolean
+): Promise<BulkTaskProfessionalCheckedResult> {
+  const res = await api.put(`/projects/${projectId}/orders/${orderId}/tasks/professional-check`, {
+    task_ids: taskIds,
+    is_professional_checked: isProfessionalChecked,
+  });
+  return res.data;
+}
+
 export async function listTaskStatusHistory(
   projectId: string,
   orderId: string
