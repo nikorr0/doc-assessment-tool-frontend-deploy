@@ -133,6 +133,12 @@ export default function OrderPage() {
   const [tasksQuarterFilter, setTasksQuarterFilter] = useState<string>("all");
   const [tasksCurrentPage, setTasksCurrentPage] = useState<number>(1);
   const [tasksPageSize, setTasksPageSize] = useState<number>(5);
+  const [actsBlockTab, setActsBlockTab] = useState<"by-group" | "all">("by-group");
+  const [allActsPage, setAllActsPage] = useState<number>(1);
+  const [allActsPageSize, setAllActsPageSize] = useState<number>(5);
+  const [allActsGroupFilter, setAllActsGroupFilter] = useState<string>("all");
+  const [allActsQuarterFilter, setAllActsQuarterFilter] = useState<string>("all");
+  const [allActsSort, setAllActsSort] = useState<"date-desc" | "date-asc" | "name-asc" | "name-desc">("date-desc");
   const [activeSection, setActiveSection] = useState<string>("order-info");
   const templatePollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const templatePollInFlightRef = useRef(false);
@@ -510,6 +516,13 @@ export default function OrderPage() {
     return parsed.toLocaleDateString("ru-RU");
   }, []);
 
+  const formatFileName = useCallback((name?: string | null, maxLen = 22): string => {
+    if (!name) return "—";
+    const withoutExt = name.replace(/\.docx$/i, "");
+    if (withoutExt.length <= maxLen) return withoutExt;
+    return withoutExt.slice(0, maxLen) + "…";
+  }, []);
+
   const resolveTaskDeadline = useCallback((task: TaskRecord): string | null => {
     return task.deadline ?? task.actDeadlineDate ?? null;
   }, []);
@@ -647,6 +660,48 @@ export default function OrderPage() {
     return statusHistory.filter(record => (record.groupId ?? "") === selectedGroupId);
   }, [statusHistory, selectedGroupId]);
 
+  const filteredAllActs = useMemo(() => {
+    let result = acts.filter(act => {
+      const byGroup = allActsGroupFilter === "all" || act.groupId === allActsGroupFilter;
+      const byQuarter = allActsQuarterFilter === "all" || String(act.quarterYear) === allActsQuarterFilter;
+      return byGroup && byQuarter;
+    });
+
+    result = [...result].sort((a, b) => {
+      if (allActsSort === "date-desc") {
+        return new Date(b.uploadedAt ?? 0).getTime() - new Date(a.uploadedAt ?? 0).getTime();
+      }
+      if (allActsSort === "date-asc") {
+        return new Date(a.uploadedAt ?? 0).getTime() - new Date(b.uploadedAt ?? 0).getTime();
+      }
+      if (allActsSort === "name-asc") {
+        return (a.fileName ?? "").localeCompare(b.fileName ?? "", "ru");
+      }
+      if (allActsSort === "name-desc") {
+        return (b.fileName ?? "").localeCompare(a.fileName ?? "", "ru");
+      }
+      return 0;
+    });
+
+    return result;
+  }, [acts, allActsGroupFilter, allActsQuarterFilter, allActsSort]);
+
+  const allActsTotalPages = Math.max(1, Math.ceil(filteredAllActs.length / allActsPageSize));
+
+  const paginatedAllActs = useMemo(
+    () => filteredAllActs.slice((allActsPage - 1) * allActsPageSize, allActsPage * allActsPageSize),
+    [filteredAllActs, allActsPage, allActsPageSize]
+  );
+
+  // Сброс страницы при смене фильтров
+  useEffect(() => {
+    setAllActsPage(1);
+  }, [allActsGroupFilter, allActsQuarterFilter, allActsSort, allActsPageSize]);
+
+  useEffect(() => {
+    if (allActsPage > allActsTotalPages) setAllActsPage(allActsTotalPages);
+  }, [allActsPage, allActsTotalPages]);
+
   /** Метрики для нижней строки состояния: выбранная группа. */
   const orderPageStatusBar = useMemo(() => {
     if (!selectedGroupId) {
@@ -697,7 +752,6 @@ export default function OrderPage() {
       "acts-quarters",
       "tasks-group",
       "status-history",
-      "acts-list",
     ];
 
     const onScroll = () => {
@@ -1117,10 +1171,9 @@ export default function OrderPage() {
         <div style={{ width: 1, height: 24, background: "#cbd5e1", margin: "0 4px", flexShrink: 0 }} />
         {([
           ["order-info", "Информация"],
-          ["acts-quarters", "Акты по кварталам"],
+          ["acts-quarters", "Акты"],
           ["tasks-group", "Задачи группы"],
           ["status-history", "История статусов"],
-          ["acts-list", "Список актов"],
         ] as const).map(([id, label]) => (
           <a
             key={id}
@@ -1175,268 +1228,380 @@ export default function OrderPage() {
       </div>
 
       <div className="card" id="acts-quarters">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0 }}>Акты по кварталам</h3>
+        {/* Шапка с вкладками и кнопкой обновить */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, borderBottom: "2px solid #e2e8f0", paddingBottom: 0 }}>
+          <div style={{ display: "flex", gap: 0 }}>
+            {(["by-group", "all"] as const).map(tab => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActsBlockTab(tab)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  borderBottom: actsBlockTab === tab ? "2px solid #2563eb" : "2px solid transparent",
+                  color: actsBlockTab === tab ? "#2563eb" : "#64748b",
+                  fontWeight: actsBlockTab === tab ? 700 : 400,
+                  fontSize: 15,
+                  padding: "0 20px 14px",
+                  cursor: "pointer",
+                  borderRadius: 0,
+                  marginBottom: -2,
+                  transition: "all 0.15s",
+                }}
+              >
+                {tab === "by-group" ? "Акты по группе" : "Все акты"}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="secondary"
-            onClick={() => {
-              refreshActs();
-              refreshTemplates();
-            }}
+            onClick={() => { refreshActs(); refreshTemplates(); }}
             disabled={actsState === "loading" || templatesState === "loading"}
+            style={{ marginBottom: 14 }}
           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
             Обновить
           </button>
         </div>
-        {groupsState === "loading" && <div>Загрузка групп...</div>}
-        {groupsState === "error" && <div style={{ color: "crimson" }}>{groupsError}</div>}
-        {groupsState === "idle" && groups.length === 0 && (
-          <div className="empty-state">
-            Группы еще не обнаружены. Дождитесь завершения обработки приказа.
-          </div>
-        )}
-        {groupsState === "idle" && groups.length > 0 && (
-          <>
-            <label className="form-field order-group-selector">
-              <span className="form-field-label">Группа</span>
-              <select
-                className="form-control group-name-selector"
-                value={selectedGroupId ?? ""}
-                onChange={event => {
-                  setUploadError(null);
-                  const value = event.target.value;
-                  setSelectedGroupId(value || null);
-                }}
-              >
-                {!selectedGroupId && (
-                  <option value="" disabled>
-                    Выберите группу
-                  </option>
-                )}
-                {groups.map(group => (
-                  <option key={group.groupId} value={group.groupId}>
-                    {group.groupName || group.groupId}
-                  </option>
-                ))}
-              </select>
-            </label>
 
-            {templatesState === "loading" && <div>Загрузка шаблонов...</div>}
-            {templatesState === "error" && templateError && (
-              <div style={{ color: "crimson" }}>{templateError}</div>
+        {/* ===== ВКЛАДКА 1: Акты по группе ===== */}
+        {actsBlockTab === "by-group" && (
+          <>
+            {groupsState === "loading" && <div>Загрузка групп...</div>}
+            {groupsState === "error" && <div style={{ color: "crimson" }}>{groupsError}</div>}
+            {groupsState === "idle" && groups.length === 0 && (
+              <div className="empty-state">Группы еще не обнаружены. Дождитесь завершения обработки приказа.</div>
             )}
-            <table className="acts-table" style={{ marginTop: 16 }}>
-              <thead>
-                <tr>
-                  <th>Квартал</th>
-                  <th>Акт</th>
-                  <th>Шаблон</th>
-                  <th style={{ width: 220 }}>Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[1, 2, 3, 4].map(quarter => {
-                  const act = acts.find(
-                    item => item.groupId === selectedGroupId && item.quarterYear === quarter
-                  );
-                  const template = templates.find(
-                    item => item.groupId === selectedGroupId && item.quarterYear === quarter
-                  );
-                  return (
-                    <tr key={quarter}>
-                      <td style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{quarter}-й квартал</td>
-                      <td>
-                        {act ? (
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "center",
-                              gap: 8,
-                              minWidth: 0,
-                              width: "100%",
-                            }}
-                          >
-                            <div style={{ minWidth: 0, textAlign: "center", width: "100%" }}>
-                              <div
-                                style={{
-                                  fontWeight: 500,
-                                  fontSize: 14,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {act.fileName}
-                              </div>
-                              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-                                {act.uploadedAt
-                                  ? new Date(act.uploadedAt).toLocaleString("ru-RU")
-                                  : "—"}
-                              </div>
-                            </div>
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 8,
-                                justifyContent: "center",
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              {act.fileRef ? (
-                                <a
-                                  href={act.fileRef}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Скачать акт"
-                                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#16a34a", textDecoration: "none" }}
-                                >
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7 10 12 15 17 10"/>
-                                    <line x1="12" y1="15" x2="12" y2="3"/>
-                                  </svg>
-                                </a>
-                              ) : (
-                                <span style={{ color: "#94a3b8" }}>—</span>
-                              )}
-                              <button
-                                type="button"
-                                title="Удалить акт"
-                                onClick={e => { e.preventDefault(); e.stopPropagation(); setActToDelete(act); }}
-                                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", padding: 0 }}
-                              >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="3 6 5 6 21 6"/>
-                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                                  <line x1="10" y1="11" x2="10" y2="17"/>
-                                  <line x1="14" y1="11" x2="14" y2="17"/>
-                                  <path d="M9 6V4h6v2"/>
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <span style={{ color: "#94a3b8", fontSize: 13 }}>Не загружен</span>
-                        )}
-                      </td>
-                      <td>
-                        {template ? (
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "center",
-                              gap: 8,
-                              minWidth: 0,
-                              width: "100%",
-                            }}
-                          >
-                            <div style={{ minWidth: 0, textAlign: "center", width: "100%" }}>
-                              <div
-                                style={{
-                                  fontWeight: 500,
-                                  fontSize: 14,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {template.fileName}
-                              </div>
-                              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-                                {template.createdAt
-                                  ? new Date(template.createdAt).toLocaleString("ru-RU")
-                                  : "—"}
-                              </div>
-                            </div>
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 8,
-                                justifyContent: "center",
-                              }}
-                            >
-                              {template.fileRef ? (
-                                <a
-                                  href={template.fileRef}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Скачать шаблон"
-                                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#16a34a", textDecoration: "none" }}
-                                >
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7 10 12 15 17 10"/>
-                                    <line x1="12" y1="15" x2="12" y2="3"/>
-                                  </svg>
-                                </a>
-                              ) : (
-                                <span style={{ color: "#94a3b8" }}>—</span>
-                              )}
-                              <button
-                                type="button"
-                                title="Удалить шаблон"
-                                onClick={e => { e.preventDefault(); e.stopPropagation(); setTemplateToDelete(template); }}
-                                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", padding: 0 }}
-                              >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="3 6 5 6 21 6"/>
-                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                                  <line x1="10" y1="11" x2="10" y2="17"/>
-                                  <line x1="14" y1="11" x2="14" y2="17"/>
-                                  <path d="M9 6V4h6v2"/>
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <span style={{ color: "#94a3b8", fontSize: 13 }}>Не сформирован</span>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          <button
-                            type="button"
-                            onClick={() => handleQuarterUpload(quarter)}
-                            disabled={
-                              !selectedGroupId ||
-                              groupsState !== "idle" ||
-                              uploadingQuarter === quarter
-                            }
-                          >
-                            {uploadingQuarter === quarter ? "Загрузка..." : "Загрузить акт"}
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => handleTemplateGenerate(quarter)}
-                            disabled={
-                              !selectedGroupId ||
-                              templatesState === "loading" ||
-                              generatingQuarter === quarter
-                            }
-                          >
-                            {generatingQuarter === quarter ? "Формируем..." : "Сформировать шаблон"}
-                          </button>
+            {groupsState === "idle" && groups.length > 0 && (
+              <>
+                <label className="form-field order-group-selector" style={{ marginBottom: 24 }}>
+                  <span className="form-field-label">Группа</span>
+                  <select
+                    className="form-control group-name-selector"
+                    value={selectedGroupId ?? ""}
+                    onChange={event => {
+                      setUploadError(null);
+                      setSelectedGroupId(event.target.value || null);
+                    }}
+                  >
+                    {!selectedGroupId && <option value="" disabled>Выберите группу</option>}
+                    {groups.map(group => (
+                      <option key={group.groupId} value={group.groupId}>
+                        {group.groupName || group.groupId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {templatesState === "loading" && <div>Загрузка шаблонов...</div>}
+
+                {/* Таймлайн */}
+                <div style={{ display: "flex", alignItems: "stretch", justifyContent: "space-between", position: "relative", marginBottom: 24 }}>
+                  {/* Линия таймлайна */}
+                  <div style={{
+                    position: "absolute",
+                    top: 18,
+                    left: "12.5%",
+                    right: "12.5%",
+                    height: 2,
+                    background: "#dbeafe",
+                    zIndex: 0,
+                  }} />
+                  {[1, 2, 3, 4].map(quarter => {
+                    const act = acts.find(item => item.groupId === selectedGroupId && item.quarterYear === quarter);
+                    const template = templates.find(item => item.groupId === selectedGroupId && item.quarterYear === quarter);
+                    const hasBoth = Boolean(act) && Boolean(template);
+                    const hasOne = Boolean(act) || Boolean(template);
+
+                    const dotColor = hasBoth ? "#16a34a" : hasOne ? "#f59e0b" : "#cbd5e1";
+                    const dotBg = hasBoth ? "#dcfce7" : hasOne ? "#fef9c3" : "#f1f5f9";
+
+                    const statusLabel = hasBoth ? "Готово" : act ? "Есть акт" : template ? "Есть шаблон" : "Нет данных";
+                    const statusColor = hasBoth ? "#16a34a" : hasOne ? "#d97706" : "#94a3b8";
+                    const statusBg = hasBoth ? "#dcfce7" : hasOne ? "#fef9c3" : "#f1f5f9";
+                    const cardBorder = hasBoth ? "#bbf7d0" : hasOne ? "#fde68a" : "#e2e8f0";
+                    const cardBg = hasBoth ? "#f0fdf4" : hasOne ? "#fffbeb" : "#fafafa";
+
+                    return (
+                      <div key={quarter} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", zIndex: 1, minWidth: 0 }}>
+                        {/* Точка таймлайна */}
+                        <div style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: "50%",
+                          background: dotBg,
+                          border: `2px solid ${dotColor}`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginBottom: 8,
+                          flexShrink: 0,
+                        }}>
+                          {hasBoth ? (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={dotColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                          ) : null}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {uploadError && <div style={{ color: "crimson", marginTop: 8 }}>{uploadError}</div>}
-            {validationBanner && (
-              <div className={`validation-banner validation-banner--${validationBanner.tone}`}>
-                {validationBanner.text}
-              </div>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "#475569", marginBottom: 10 }}>{quarter}-й квартал</span>
+
+                        {/* Карточка квартала */}
+                        <div style={{
+                          width: "calc(100% - 12px)",
+                          flex: 1,
+                          border: `1px solid ${cardBorder}`,
+                          borderRadius: 12,
+                          background: cardBg,
+                          padding: "12px 12px 10px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 0,
+                        }}>
+                          {/* Статус-бейдж */}
+                          <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+                            <span style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              padding: "3px 12px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background: statusBg,
+                              color: statusColor,
+                              border: `1px solid ${cardBorder}`,
+                            }}>
+                              {statusLabel}
+                            </span>
+                          </div>
+
+                          {/* Акт */}
+                          <div style={{ marginBottom: 10, minHeight: 95}}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Акт</div>
+                            {act ? (
+                              <>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                                  </svg>
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={act.fileName?.replace(/\.docx$/i, "")}>
+                                    {formatFileName(act.fileName)}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>
+                                  {act.uploadedAt ? new Date(act.uploadedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                                </div>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  {act.fileRef ? (
+                                    <a href={act.fileRef} target="_blank" rel="noreferrer" title="Скачать акт" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 7, border: "1px solid #e2e8f0", background: "#fff", color: "#16a34a", textDecoration: "none" }}>
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    </a>
+                                  ) : null}
+                                  <button type="button" title="Удалить акт" onClick={e => { e.preventDefault(); e.stopPropagation(); setActToDelete(act); }} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 7, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", padding: 0 }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4h6v2"/></svg>
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <div style={{ color: "#94a3b8", fontSize: 13 }}>—<br/><span style={{ fontSize: 11 }}>Не загружен</span></div>
+                            )}
+                          </div>
+
+                          {/* Разделитель */}
+                          <div style={{ borderTop: "1px solid #e2e8f0", margin: "4px 0 10px" }} />
+
+                          {/* Шаблон */}
+                          <div style={{ marginBottom: 10 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Шаблон</div>
+                            {template ? (
+                              <>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                                  </svg>
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={template.fileName?.replace(/\.docx$/i, "")}>
+                                    {formatFileName(template.fileName)}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>
+                                  {template.createdAt ? new Date(template.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                                </div>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  {template.fileRef ? (
+                                    <a href={template.fileRef} target="_blank" rel="noreferrer" title="Скачать шаблон" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 7, border: "1px solid #e2e8f0", background: "#fff", color: "#16a34a", textDecoration: "none" }}>
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    </a>
+                                  ) : null}
+                                  <button type="button" title="Удалить шаблон" onClick={e => { e.preventDefault(); e.stopPropagation(); setTemplateToDelete(template); }} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 7, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", padding: 0 }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4h6v2"/></svg>
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <div style={{ color: "#94a3b8", fontSize: 13 }}>—<br/><span style={{ fontSize: 11 }}>Не сформирован</span></div>
+                            )}
+                          </div>
+
+                          {/* Кнопки действий — всегда активны */}
+                          <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleQuarterUpload(quarter)}
+                              disabled={!selectedGroupId || uploadingQuarter === quarter}
+                              style={{ fontSize: 13, padding: "8px 10px" }}
+                            >
+                              {uploadingQuarter === quarter ? "Загрузка..." : "Загрузить акт"}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() => handleTemplateGenerate(quarter)}
+                              disabled={!selectedGroupId || generatingQuarter === quarter}
+                              style={{ fontSize: 13, padding: "8px 10px" }}
+                            >
+                              {generatingQuarter === quarter ? "Формируем..." : "Сформировать шаблон"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {uploadError && <div style={{ color: "crimson", marginTop: 8 }}>{uploadError}</div>}
+                {validationBanner && (
+                  <div className={`validation-banner validation-banner--${validationBanner.tone}`}>
+                    {validationBanner.text}
+                  </div>
+                )}
+                {templateError && <div style={{ color: "crimson", marginTop: 8 }}>{templateError}</div>}
+                {templateInfo && <div style={{ color: "#16a34a", marginTop: 8 }}>{templateInfo}</div>}
+              </>
             )}
-            {templateError && <div style={{ color: "crimson", marginTop: 8 }}>{templateError}</div>}
-            {templateInfo && <div style={{ color: "#16a34a", marginTop: 8 }}>{templateInfo}</div>}
+          </>
+        )}
+
+        {/* ===== ВКЛАДКА 2: Все акты ===== */}
+        {actsBlockTab === "all" && (
+          <>
+            {/* Фильтры */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "flex-end" }}>
+              <label className="form-field" style={{ minWidth: 180 }}>
+                <span className="form-field-label">Группа</span>
+                <select className="form-control" value={allActsGroupFilter} onChange={e => setAllActsGroupFilter(e.target.value)}>
+                  <option value="all">Все группы</option>
+                  {groups.map(g => (
+                    <option key={g.groupId} value={g.groupId}>{g.groupName || g.groupId}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-field" style={{ minWidth: 160 }}>
+                <span className="form-field-label">Квартал</span>
+                <select className="form-control" value={allActsQuarterFilter} onChange={e => setAllActsQuarterFilter(e.target.value)}>
+                  <option value="all">Все кварталы</option>
+                  <option value="1">1-й квартал</option>
+                  <option value="2">2-й квартал</option>
+                  <option value="3">3-й квартал</option>
+                  <option value="4">4-й квартал</option>
+                </select>
+              </label>
+              <label className="form-field" style={{ minWidth: 200 }}>
+                <span className="form-field-label">Сортировка</span>
+                <select className="form-control" value={allActsSort} onChange={e => setAllActsSort(e.target.value as typeof allActsSort)}>
+                  <option value="date-desc">Дата загрузки (новые)</option>
+                  <option value="date-asc">Дата загрузки (старые)</option>
+                  <option value="name-asc">По алфавиту (А→Я)</option>
+                  <option value="name-desc">По алфавиту (Я→А)</option>
+                </select>
+              </label>
+            </div>
+
+            {actsState === "loading" && <div>Загрузка актов...</div>}
+            {actsState === "error" && <div style={{ color: "crimson" }}>{error}</div>}
+            {actsState === "idle" && acts.length === 0 && (
+              <div className="empty-state">Акты еще не загружены.</div>
+            )}
+            {actsState === "idle" && acts.length > 0 && filteredAllActs.length === 0 && (
+              <div className="empty-state">По заданным фильтрам ничего не найдено.</div>
+            )}
+
+            {actsState === "idle" && filteredAllActs.length > 0 && (
+              <>
+                <table className="acts-table">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", paddingLeft: 8 }}>Файл</th>
+                      <th>Группа</th>
+                      <th>Квартал</th>
+                      <th>Дата загрузки</th>
+                      <th>Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedAllActs.map(act => (
+                      <tr key={act.documentId}>
+                        <td style={{ textAlign: "left", paddingLeft: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                            <span style={{ fontWeight: 500, fontSize: 14 }} title={act.fileName ?? ""}>
+                              {formatFileName(act.fileName, 30)}
+                            </span>
+                          </div>
+                        </td>
+                        <td>{resolveGroupName(act.groupId)}</td>
+                        <td>{act.quarterYear ?? "—"}</td>
+                        <td>{act.uploadedAt ? new Date(act.uploadedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+                            {act.fileRef ? (
+                              <a href={act.fileRef} target="_blank" rel="noreferrer" title="Скачать акт" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#16a34a", textDecoration: "none" }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                              </a>
+                            ) : <span style={{ color: "#94a3b8" }}>—</span>}
+                            <button type="button" title="Удалить акт" onClick={e => { e.preventDefault(); e.stopPropagation(); setActToDelete(act); }} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", padding: 0 }}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4h6v2"/></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Пагинация вкладки "Все акты" */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                    Записей на странице:
+                    <select
+                      className="form-control"
+                      style={{ width: "auto", padding: "2px 6px" }}
+                      value={allActsPageSize}
+                      onChange={e => setAllActsPageSize(Number(e.target.value))}
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                    </select>
+                  </label>
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <button type="button" className="secondary" style={{ padding: "4px 10px", fontSize: 13 }} disabled={allActsPage === 1} onClick={() => { setAllActsPage(1); document.getElementById("acts-quarters")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>«</button>
+                    <button type="button" className="secondary" style={{ padding: "4px 10px", fontSize: 13 }} disabled={allActsPage === 1} onClick={() => { setAllActsPage(p => Math.max(1, p - 1)); document.getElementById("acts-quarters")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>‹</button>
+                    <span style={{ fontSize: 13, minWidth: 80, textAlign: "center" }}>Стр. {allActsPage} из {allActsTotalPages}</span>
+                    <button type="button" className="secondary" style={{ padding: "4px 10px", fontSize: 13 }} disabled={allActsPage === allActsTotalPages} onClick={() => { setAllActsPage(p => Math.min(allActsTotalPages, p + 1)); document.getElementById("acts-quarters")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>›</button>
+                    <button type="button" className="secondary" style={{ padding: "4px 10px", fontSize: 13 }} disabled={allActsPage === allActsTotalPages} onClick={() => { setAllActsPage(allActsTotalPages); document.getElementById("acts-quarters")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>»</button>
+                  </div>
+                  <span style={{ fontSize: 12, color: "#64748b" }}>
+                    Показано {(allActsPage - 1) * allActsPageSize + 1}–{Math.min(allActsPage * allActsPageSize, filteredAllActs.length)} из {filteredAllActs.length}
+                  </span>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -1887,84 +2052,6 @@ export default function OrderPage() {
               );
             })}
           </div>
-        )}
-      </div>
-
-      <div className="card" id="acts-list">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0 }}>Список всех актов</h3>
-          <button type="button" className="secondary" onClick={refreshActs} disabled={actsState === "loading"}>
-            Обновить
-          </button>
-        </div>
-        {actsState === "loading" && <div>Загрузка актов...</div>}
-        {actsState === "error" && <div style={{ color: "crimson" }}>{error}</div>}
-        {actsState === "idle" && acts.length === 0 && <div className="empty-state">Акты еще не загружены.</div>}
-
-        {acts.length > 0 && (
-          <table className="acts-table">
-            <thead>
-              <tr>
-                <th>Файл</th>
-                <th>Группа</th>
-                <th>Квартал</th>
-                <th>Статус</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {acts.map(act => (
-                <tr key={act.documentId}>
-                  <td>
-                    <div>{act.fileName}</div>
-                    {act.uploadedAt && (
-                      <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                        Загружено: {new Date(act.uploadedAt).toLocaleString("ru-RU")}
-                      </div>
-                    )}
-                  </td>
-                  <td>{resolveGroupName(act.groupId)}</td>
-                  <td>{act.quarterYear ?? "—"}</td>
-                  <td><span className="status-badge">{getDocumentStatusLabel(act.status)}</span></td>
-                  <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-                      {act.fileRef ? (
-                        <a
-                          href={act.fileRef}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Скачать акт"
-                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#16a34a", textDecoration: "none" }}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                            <polyline points="7 10 12 15 17 10"/>
-                            <line x1="12" y1="15" x2="12" y2="3"/>
-                          </svg>
-                        </a>
-                      ) : (
-                        <span style={{ color: "#94a3b8" }}>—</span>
-                      )}
-                      <button
-                        type="button"
-                        title="Удалить акт"
-                        onClick={e => { e.preventDefault(); e.stopPropagation(); setActToDelete(act); }}
-                        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#ef4444", padding: 0 }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6"/>
-                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                          <line x1="10" y1="11" x2="10" y2="17"/>
-                          <line x1="14" y1="11" x2="14" y2="17"/>
-                          <path d="M9 6V4h6v2"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         )}
       </div>
 

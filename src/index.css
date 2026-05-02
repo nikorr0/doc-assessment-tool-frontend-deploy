@@ -1712,8 +1712,6 @@ button.secondary {
 .icon-btn--delete { color: #ef4444; }
 
 .icon-btn {
-  background: #fff;
-  border: 1px solid #e2e8f0;
   transition: background 0.15s, border-color 0.15s;
 }
 
@@ -1721,3 +1719,12 @@ button.secondary {
 .icon-btn--dashboard:hover  { background: #eef2ff; border-color: #c7d2fe; }
 .icon-btn--download:hover   { background: #f0fdf4; border-color: #bbf7d0; }
 .icon-btn--delete:hover     { background: #fef2f2; border-color: #fca5a5; }
+
+.quarter-cards-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.quarter-cards-row > * {
+  flex: 1;
+}
