@@ -17,6 +17,7 @@ import type {
   TaskStatusHistoryRecord,
   TemplateRecord,
 } from "../../types";
+import type { BulkTaskProfessionalCheckedResult } from "../../api/projects.real";
 import { getDb, getOrderYearKey, type DocumentValidationMockState } from "../store/db";
 import { deepClone } from "../utils/clone";
 import { getMockScenario, withNetworkDelay } from "../utils/delay";
@@ -1232,6 +1233,31 @@ export async function updateTaskProfessionalChecked(
     throw new Error("Задача не найдена");
   }
   target.isProfessionalChecked = isProfessionalChecked;
+}
+
+export async function updateTasksProfessionalCheckedBulk(
+  projectId: string,
+  orderId: string,
+  taskIds: number[],
+  isProfessionalChecked: boolean
+): Promise<BulkTaskProfessionalCheckedResult> {
+  await withNetworkDelay();
+  ensureOrder(projectId, orderId);
+  const updatedTaskIds: number[] = [];
+  taskIds.forEach(taskId => {
+    const target = findTask(orderId, taskId);
+    if (target) {
+      target.isProfessionalChecked = isProfessionalChecked;
+      updatedTaskIds.push(taskId);
+    }
+  });
+  return {
+    order_id: orderId,
+    is_professional_checked: isProfessionalChecked,
+    requested_count: taskIds.length,
+    updated_count: updatedTaskIds.length,
+    updated_task_ids: updatedTaskIds,
+  };
 }
 
 export async function getOrderStats(projectId: string, orderId: string): Promise<DashboardStats> {

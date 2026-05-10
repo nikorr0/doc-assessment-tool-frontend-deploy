@@ -22,6 +22,7 @@ function getDocumentStatusLabel(status?: string | null): string {
     completed: "Завершен",
     done: "Завершен",
     stored: "Сохранен",
+    processed: "Обработан",
   };
   return labels[normalized] ?? (status?.trim() || "—");
 }
@@ -212,7 +213,7 @@ export default function ProjectPage() {
                     <div>{order.fileName}</div>
                     {order.uploadedAt && (
                       <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                        Загружено: {new Date(order.uploadedAt).toLocaleString("ru-RU")}
+                        Загружено: {new Date(order.uploadedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </div>
                     )}
                   </td>

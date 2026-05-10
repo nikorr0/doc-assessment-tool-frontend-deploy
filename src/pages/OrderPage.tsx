@@ -16,6 +16,7 @@ import {
   undoTaskStatus,
   updateTaskStatus,
   updateTaskProfessionalChecked,
+  updateTasksProfessionalCheckedBulk,
   uploadAct,
 } from "../api/projects";
 import { getApiErrorMessage } from "../utils/error";
@@ -79,6 +80,7 @@ function getDocumentStatusLabel(status?: string | null): string {
     completed: "Завершен",
     done: "Завершен",
     stored: "Сохранен",
+    processed: "Обработан",
   };
   return labels[normalized] ?? (status?.trim() || "—");
 }
@@ -818,25 +820,18 @@ export default function OrderPage() {
     if (completedTasks.length === 0) return;
 
     const nextChecked = completedTasksToggleTargetChecked;
+    const targetTaskIds = completedTasks.map(task => task.taskId);
     setBulkUpdatingProfessionalChecked(true);
     setTasksError(null);
 
     try {
-      const updateResults = await Promise.allSettled(
-        completedTasks.map(task =>
-          updateTaskProfessionalChecked(projectId, orderId, task.taskId, nextChecked)
-        )
+      const result = await updateTasksProfessionalCheckedBulk(
+        projectId,
+        orderId,
+        targetTaskIds,
+        nextChecked
       );
-
-      const updatedTaskIds = new Set<number>();
-      let failedUpdates = 0;
-      updateResults.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          updatedTaskIds.add(completedTasks[index].taskId);
-          return;
-        }
-        failedUpdates += 1;
-      });
+      const updatedTaskIds = new Set<number>(result.updated_task_ids ?? []);
 
       if (updatedTaskIds.size > 0) {
         setTasks(prev =>
@@ -848,11 +843,11 @@ export default function OrderPage() {
         );
       }
 
-      if (failedUpdates > 0) {
+      if (updatedTaskIds.size !== targetTaskIds.length) {
         setTasksError(
-          failedUpdates === completedTasks.length
+          updatedTaskIds.size === 0
             ? "Не удалось обновить отметку проверки для выполненных задач"
-            : `Обновлено ${updatedTaskIds.size} из ${completedTasks.length} выполненных задач`
+            : `Обновлено ${updatedTaskIds.size} из ${targetTaskIds.length} выполненных задач`
         );
       }
     } catch (err: unknown) {
@@ -877,7 +872,7 @@ export default function OrderPage() {
     if (Number.isNaN(parsed.getTime())) {
       return value;
     }
-    return parsed.toLocaleString("ru-RU");
+    return parsed.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
   }, []);
 
   const handleUndoFromHistory = useCallback(
@@ -1160,7 +1155,7 @@ export default function OrderPage() {
             background: "#2563eb",
             color: "#fff",
             fontWeight: 700,
-            fontSize: 14,
+            fontSize: 16,
             textDecoration: "none",
             flexShrink: 0,
             transition: "background 0.15s",
@@ -1183,8 +1178,8 @@ export default function OrderPage() {
               borderRadius: 8,
               background: activeSection === id ? "#dbeafe" : "transparent",
               color: activeSection === id ? "#1d4ed8" : "#475569",
-              fontWeight: activeSection === id ? 600 : 400,
-              fontSize: 14,
+              fontWeight: activeSection === id ? 700 : 600,
+              fontSize: 16,
               textDecoration: "none",
               border: activeSection === id ? "1px solid #bfdbfe" : "1px solid transparent",
               transition: "all 0.15s",
@@ -1213,13 +1208,13 @@ export default function OrderPage() {
                 <tr>
                   <td>
                     <div className="order-info-file-cell">
-                      <div className="order-info-file-name">{order.fileName}</div>
+                      <div className="order-info-file-name">{formatFileName(order.fileName, 50)}</div>
                     </div>
                   </td>
                   <td>
                     <span className="status-badge">{getDocumentStatusLabel(order.status)}</span>
                   </td>
-                  <td>{order.uploadedAt ? new Date(order.uploadedAt).toLocaleString("ru-RU") : "—"}</td>
+                  <td>{order.uploadedAt ? new Date(order.uploadedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                 </tr>
               </tbody>
             </table>
