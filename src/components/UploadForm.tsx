@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import { useState, useRef, useCallback } from "react";
+import type { ChangeEvent, DragEvent, FormEvent } from "react";
 import { getDocumentValidation, uploadAct, uploadOrder } from "../api/projects";
 import { getApiErrorMessage } from "../utils/error";
 import { sha256FileHex } from "../utils/hash";
@@ -36,6 +36,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} МБ`;
+}
+
 export default function UploadForm({
   projectId,
   mode,
@@ -51,6 +57,9 @@ export default function UploadForm({
   const [error, setError] = useState<string | null>(null);
   const [validationBanner, setValidationBanner] = useState<ValidationBanner | null>(null);
   const [validationModal, setValidationModal] = useState<ValidationModal | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const inputRef = useRef<HTMLInputElement>(null);
 
   async function waitForValidation(documentId: string): Promise<DocumentValidationStatus> {
     let latest: DocumentValidationStatus | null = null;
@@ -117,19 +126,52 @@ export default function UploadForm({
     });
   }
 
-  async function handleChoose(e: ChangeEvent<HTMLInputElement>) {
+  const applyFile = useCallback(async (f: File) => {
     setError(null);
-    const f = e.target.files?.[0] ?? null;
+    setValidationBanner(null);
     setFile(f);
     setHash(null);
-    if (f) {
-      try {
-        const value = await sha256FileHex(f);
-        setHash(value);
-      } catch {
-        // ignore hashing issues silently
-      }
+    try {
+      const value = await sha256FileHex(f);
+      setHash(value);
+    } catch {
+      // ignore
     }
+  }, []);
+
+  async function handleChoose(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null;
+    if (f) await applyFile(f);
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
+  function handleDragOver(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragOver(false);
+  }
+
+  async function handleDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragOver(false);
+    const f = e.dataTransfer.files?.[0] ?? null;
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith(".docx")) {
+      setError("Только файлы .docx допустимы");
+      return;
+    }
+    await applyFile(f);
+  }
+
+  function handleClear() {
+    setFile(null);
+    setHash(null);
+    setError(null);
+    setValidationBanner(null);
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -179,41 +221,178 @@ export default function UploadForm({
 
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {/* <span style={{ fontSize: 13, color: "#64748b" }}>
-          {mode === "ORDER" ? "Файл приказа (.docx)" : "Файл акта (.docx)"}
-        </span> */}
-        <input
-          type="file"
-          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          onChange={handleChoose}
-        />
-      </label>
+      {/* Скрытый input */}
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        onChange={handleChoose}
+        style={{ display: "none" }}
+      />
 
-      {hash && (
-        <div style={{ fontSize: 12, color: "#475569" }}>
-          SHA256: <code>{hash}</code>
+      {/* Пустое состояние: drag-and-drop зона */}
+      {!file && (
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          aria-label="Перетащите файл .docx или нажмите для выбора"
+          style={{
+            display: "inline-flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            width: "100%",
+            padding: "24px 20px",
+            borderRadius: 12,
+            border: `2px dashed ${isDragOver ? "#2563eb" : "#c7d7f5"}`,
+            background: isDragOver ? "#eff6ff" : "#f8faff",
+            cursor: "pointer",
+            transition: "border-color 0.18s, background 0.18s",
+            userSelect: "none",
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: isDragOver ? "#dbeafe" : "#e8effe",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "background 0.18s",
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+              stroke={isDragOver ? "#1d4ed8" : "#3b82f6"}
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="16 16 12 12 8 16" />
+              <line x1="12" y1="12" x2="12" y2="21" />
+              <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+            </svg>
+          </div>
+
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
+              Перетащите файл сюда
+            </div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+              поддерживаются только файлы .docx
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+            style={{
+              marginTop: 4,
+              padding: "7px 18px",
+              borderRadius: 8,
+              border: "1px solid #2563eb",
+              background: "#fff",
+              color: "#2563eb",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Выбрать файл
+          </button>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <button type="submit" disabled={uploading || !file}>
-          {uploading ? "Загрузка..." : mode === "ORDER" ? "Загрузить приказ" : "Загрузить акт"}
-        </button>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => {
-            setFile(null);
-            setHash(null);
-            setError(null);
+      {/* Файл выбран: карточка */}
+      {file && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "12px 14px",
+            borderRadius: 10,
+            border: "1px solid #e2e8f0",
+            background: "#fff",
+            maxWidth: "100%",
           }}
         >
-          Очистить
-        </button>
-      </div>
+          {/* Иконка DOCX */}
+          <div
+            style={{
+              flexShrink: 0,
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              background: "#fff",
+              border: "1px solid #e2e8f0",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 2,
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="#2563eb" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          </div>
 
-      {error && <div style={{ color: "crimson" }}>{error}</div>}
+          {/* Имя и размер */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 14, fontWeight: 600, color: "#0f172a",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {file.name}
+            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
+              {formatFileSize(file.size)}
+            </div>
+          </div>
+
+          {/* Кнопка загрузить */}
+          <button type="submit" disabled={uploading} style={{ flexShrink: 0, whiteSpace: "nowrap", height: 32, padding: "0 14px", fontSize: 14 }}>
+            {uploading ? "Загрузка..." : mode === "ORDER" ? "Загрузить" : "Загрузить акт"}
+          </button>
+
+          {/* Крестик */}
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={uploading}
+            title="Убрать файл"
+            style={{
+              flexShrink: 0,
+              width: 32,
+              height: 32,
+              padding: 0,
+              borderRadius: 8,
+              border: "1px solid #e2e8f0",
+              background: "#fff",
+              color: "#94a3b8",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {error && <div style={{ color: "crimson", fontSize: 14 }}>{error}</div>}
 
       {validationBanner && (
         <div className={`validation-banner validation-banner--${validationBanner.tone}`}>

@@ -176,7 +176,6 @@ export default function ProjectPage() {
       
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Загрузить приказ</h3>
-        <p style={{ marginTop: 4, color: "#64748b" }}>Поддерживаются только файлы .docx</p>
         <UploadForm
           projectId={projectId}
           mode="ORDER"
