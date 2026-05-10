@@ -52,7 +52,7 @@ export default function UploadForm({
   onValidationResolved,
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
-  const [hash, setHash] = useState<string | null>(null);
+  const [_hash, setHash] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationBanner, setValidationBanner] = useState<ValidationBanner | null>(null);
