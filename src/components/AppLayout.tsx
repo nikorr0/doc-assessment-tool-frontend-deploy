@@ -12,8 +12,8 @@ export default function AppLayout() {
           УНИР
         </div>
         <nav className="app-nav">
-          <NavLink to="/projects" end>
-            Проекты
+          <NavLink to="/help" className="app-help-link">
+            Справка
           </NavLink>
         </nav>
       </header>

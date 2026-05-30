@@ -7,6 +7,7 @@ import DashboardPage from "./pages/DashboardPage";
 import OrderTasksPage from "./pages/OrderTasksPage";
 import AppLayout from "./components/AppLayout";
 import NotFoundPage from "./pages/NotFoundPage";
+import HelpPage from "./pages/HelpPage";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -15,6 +16,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <Route path="/" element={<AppLayout />}>
         <Route index element={<Navigate to="/projects" replace />} />
         <Route path="projects" element={<ProjectsPage />} />
+        <Route path="help" element={<HelpPage />} />
         <Route path="projects/:projectId" element={<ProjectPage />} />
         <Route path="projects/:projectId/:orderId" element={<OrderPage />} />
         <Route path="projects/:projectId/:orderId/tasks" element={<OrderTasksPage />} />
