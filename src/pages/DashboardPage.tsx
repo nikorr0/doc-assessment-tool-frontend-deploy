@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import ReactECharts from "echarts-for-react";
 import {
   getOrder,
   getOrderInfographics,
+  getOrderRisks,
   getProject,
 } from "../api/projects";
+import DashboardRisksTab from "../components/DashboardRisksTab";
 import { StatusBar, StatusBarDot } from "../components/StatusBar";
 import { getApiErrorMessage } from "../utils/error";
 import type {
@@ -14,6 +16,8 @@ import type {
   DashboardGroupStat,
   DashboardGroupPeopleStat,
   DashboardQuarterStat,
+  OrganizationalRiskItem,
+  OrganizationalRiskSummary,
   DashboardStats,
   DocumentRecord,
   Project,
@@ -30,6 +34,7 @@ type DashboardChartId =
   | "article-sankey";
 
 const QUARTERS = [1, 2, 3, 4];
+const ALL_QUARTERS_OPTION = "all";
 const INFOGRAPHICS_POLL_INTERVAL_MS = 2000;
 const INFOGRAPHICS_MAX_ATTEMPTS = 90;
 const PRIMARY_CHART_SWITCH_DELAY_MS = 120;
@@ -47,11 +52,76 @@ const DASHBOARD_CHART_TITLES: Record<DashboardChartId, string> = {
   "quarter-status": "Статусы задач по кварталам",
   "group-status": "Статусы задач по группам",
   // "quarter-completion": "Выполнение задач по кварталам",
-  "quarter-gauge": "Выполнение задач по кварталам",
-  "group-acts-polar": "Загруженные акты по группам",
+  "quarter-gauge": "Квартальная динамика исполнения задач",
+  "group-acts-polar": "Загруженные акты по группам и кварталам",
   "group-person-treemap": "Задачи по группам и сотрудникам",
-  "article-sankey": "Задачи по публикациям статей",
+  "article-sankey": "Связь сотрудников с публикационными задачами",
 };
+
+const DASHBOARD_CHART_DESCRIPTIONS: Record<DashboardChartId, string> = {
+  "quarter-status":
+    "Столбчатая диаграмма: число задач по кварталам в разрезе статусов (выполнено, не выполнено, не проверено). Нажатие на сегмент открывает отфильтрованный список задач.",
+  "group-status":
+    "Столбчатая диаграмма: число задач по рабочим группам в разрезе статусов. Нажатие на сегмент открывает отфильтрованный список задач.",
+  "quarter-gauge":
+    "Счетчик: процент выполнения задач по каждому кварталу. Цвет сегмента отражает уровень исполнения, стрелка указывает на текущий квартал. При наведении показывается процент выполнения по группам.",
+  "group-acts-polar":
+    "Полярная диаграмма: наличие загруженных актов по группам и кварталам. Закрашенный сегмент означает, что акт за соответствующий квартал загружен.",
+  "group-person-treemap":
+    "Древовидная карта: распределение задач между группами и исполнителями. Размер блока – число всех задач сотрудника, цвет – соотношение статусов (чем ближе к зеленому, тем больше выполнено задач). При наведении показывается число задач и соотношение статусов. Нажатие открывает список задач.",
+  "article-sankey":
+    "Диаграмма потоков (Sankey): связи между рабочими группами, исполнителями и задачами о статьях и публикациях. На диаграмму попадают только задачи, в формулировке которых речь идёт о статьях, публикациях, рукописях или манускриптах. Похожие по смыслу задачи объединяются в один блок справа, что показывает, сколько людей из разных групп работают над одним кластером связанных задач. Ленты между столбцами показывают, кто с кем связан; чем шире лента, тем больше таких задач. При наведении на ленту отображается их число, на задачу – полный текст формулировки. Нажатие на группу или сотрудника открывает отфильтрованный список задач.",
+};
+
+function HelpCircleIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
+function DashboardChartHelpButton({
+  chartId,
+  stopPropagation = false,
+}: {
+  chartId: DashboardChartId;
+  stopPropagation?: boolean;
+}) {
+  const suppressCardAction = (event: MouseEvent | KeyboardEvent) => {
+    if (!stopPropagation) return;
+    event.stopPropagation();
+  };
+
+  return (
+    <span
+      className="dashboard-chart-help"
+      tabIndex={0}
+      aria-label="Описание диаграммы"
+      onClick={suppressCardAction}
+      onMouseDown={suppressCardAction}
+      onKeyDown={suppressCardAction}
+    >
+      <HelpCircleIcon />
+      <span className="dashboard-chart-help__popup">
+        {DASHBOARD_CHART_DESCRIPTIONS[chartId]}
+      </span>
+    </span>
+  );
+}
 
 const QUARTER_ACT_COLORS: Record<number, string> = {
   1: "#0D41E1",
@@ -66,19 +136,61 @@ const QUARTER_GAUGE_LEGEND_ITEMS = [
   { color: "#ef4444", label: "от 0% до 50%" },
 ] as const;
 
-const GROUP_PERSON_TREEMAP_COLORS = [
-  "#00AEFF",
-  "#00A7F4",
-  "#009FE8",
-  "#0899DC",
-  "#008FD1",
-] as const;
-
 const ARTICLE_SANKEY_LEVEL_COLORS = [
   "#0C85F5",
   "#0DCBFF",
   "#00E8DC",
 ] as const;
+
+function mixEmployeeStatusColor(
+  completed: number,
+  notCompleted: number,
+  inProgress: number
+): string {
+  const normalize = (value: number) => (Number.isFinite(value) ? Math.max(0, value) : 0);
+  const completedSafe = normalize(completed);
+  const notCompletedSafe = normalize(notCompleted);
+  const inProgressSafe = normalize(inProgress);
+  const total = completedSafe + notCompletedSafe + inProgressSafe;
+  if (total <= 0) {
+    return "#e2e8f0";
+  }
+
+  const weights = {
+    completed: completedSafe / total,
+    notCompleted: notCompletedSafe / total,
+    inProgress: inProgressSafe / total,
+  };
+
+  const baseGreen = { r: 134, g: 239, b: 172 };
+  const baseRed = { r: 252, g: 165, b: 165 };
+  const baseOrange = { r: 253, g: 186, b: 116 };
+  const lightenFactor = 0.16;
+
+  const blend = (channel: "r" | "g" | "b") => {
+    const mixed =
+      baseGreen[channel] * weights.completed +
+      baseRed[channel] * weights.notCompleted +
+      baseOrange[channel] * weights.inProgress;
+    return Math.round(mixed + (255 - mixed) * lightenFactor);
+  };
+
+  return `rgb(${blend("r")}, ${blend("g")}, ${blend("b")})`;
+}
+
+function mapDashboardStackSeriesToTasksStatus(seriesName: string): string | undefined {
+  switch (seriesName.trim()) {
+    case "Выполнено":
+      return "completed";
+    case "Не выполнено":
+      return "not_completed";
+    /* "Не проверено" на дашборде перенаправляет ставит "Выполнено" в списке задач */
+    case "Не проверено":
+      return "completed";
+    default:
+      return undefined;
+  }
+}
 
 function resolveGroupLabel(group: DashboardGroupStat) {
   return group.groupName || group.groupId;
@@ -130,6 +242,45 @@ function wrapTextByWords(text: string, maxLineLength = 100) {
   return lines.join("\n");
 }
 
+const ARTICLE_SANKEY_LABEL_ELLIPSIS = "...";
+
+function truncateSingleLineWithEllipsis(text: string, maxLen: number): string {
+  const normalized = normalizeText(text);
+  if (!normalized || maxLen <= 0) return normalized;
+  if (normalized.length <= maxLen) return normalized;
+
+  const ell = ARTICLE_SANKEY_LABEL_ELLIPSIS;
+  if (maxLen <= ell.length) {
+    return normalized.slice(0, maxLen);
+  }
+
+  const budget = maxLen - ell.length;
+  let cut = normalized.slice(0, budget);
+  const lastSpace = cut.lastIndexOf(" ");
+  if (lastSpace > Math.floor(budget * 0.5)) {
+    cut = cut.slice(0, lastSpace);
+  }
+  cut = cut.trimEnd();
+  if (!cut) {
+    cut = normalized.slice(0, budget);
+  }
+  return cut + ell;
+}
+
+function articleSankeyArticleLabelMaxChars(contributorCount: number): number {
+  if (contributorCount <= 2) return 25;
+  if (contributorCount <= 4) return 60;
+  return 30;
+}
+
+function formatArticleSankeyNodeLabel(label: string, contributorCount: number): string {
+  const maxChars = articleSankeyArticleLabelMaxChars(contributorCount);
+  if (contributorCount <= 4) {
+    return truncateSingleLineWithEllipsis(label, maxChars);
+  }
+  return wrapTextByWords(label, maxChars);
+}
+
 function formatPersonLabel(fullName?: string | null) {
   const normalized = normalizeText(fullName ?? "");
   if (!normalized) return "Не указано";
@@ -154,7 +305,7 @@ function formatPersonLabel(fullName?: string | null) {
 
 function formatGroupLabel(rawGroupLabel: string) {
   const normalized = normalizeText(rawGroupLabel);
-  if (!normalized) return "—";
+  if (!normalized) return "–";
   if (/^не\s+удалось\s+извлечь\s+данные$/i.test(normalized)) return normalized;
 
   const groupMatch = normalized.match(/группа\s+(\d+)\.?/i);
@@ -221,9 +372,13 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [articleSankey, setArticleSankey] = useState<ArticleSankeyData | null>(null);
   const [groupPersonStats, setGroupPersonStats] = useState<DashboardGroupPeopleStat[]>([]);
+  const [groupPeopleQuarters, setGroupPeopleQuarters] = useState<
+    Record<string, DashboardGroupPeopleStat[]>
+  >({});
   const [groupActStats, setGroupActStats] = useState<DashboardGroupActStat[]>([]);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedQuarter, setSelectedQuarter] = useState<string>(ALL_QUARTERS_OPTION);
   const [statsState, setStatsState] = useState<LoadState>("loading");
   const [error, setError] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string>("all");
@@ -231,6 +386,12 @@ export default function DashboardPage() {
   const [pendingPrimaryChartId, setPendingPrimaryChartId] = useState<DashboardChartId | null>(null);
   const [isPrimaryChartClearing, setIsPrimaryChartClearing] = useState(false);
   const [isPrimaryChartExpanded, setIsPrimaryChartExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<"infographics" | "risks">("infographics");
+  const [risksState, setRisksState] = useState<LoadState>("idle");
+  const [risksError, setRisksError] = useState<string | null>(null);
+  const [risks, setRisks] = useState<OrganizationalRiskItem[]>([]);
+  const [risksSummary, setRisksSummary] = useState<OrganizationalRiskSummary | null>(null);
+  const [riskLevelFilter, setRiskLevelFilter] = useState<"all" | "high" | "medium" | "low">("all");
   const primaryChartSwitchTimeoutRef = useRef<number | null>(null);
 
   const loadInfographics = useCallback(
@@ -274,6 +435,7 @@ export default function DashboardPage() {
             setStats(payload.data.stats);
             setArticleSankey(payload.data.articleSankey);
             setGroupPersonStats(payload.data.groupPeople);
+            setGroupPeopleQuarters(payload.data.groupPeopleQuarters ?? {});
             setGroupActStats(payload.data.groupActs ?? []);
             setAvailableYears(availableYearsFromPayload);
             setSelectedYear(nextSelectedYear);
@@ -295,6 +457,7 @@ export default function DashboardPage() {
         if (shouldCancel?.()) return;
         console.error(err);
         setGroupPersonStats([]);
+        setGroupPeopleQuarters({});
         setGroupActStats([]);
         setAvailableYears([]);
         setSelectedYear(null);
@@ -324,6 +487,38 @@ export default function DashboardPage() {
     return availableYears[availableYears.length - 1] ?? null;
   }, [availableYears, selectedYear]);
 
+  const effectiveSelectedQuarter = useMemo(() => {
+    if (selectedQuarter === ALL_QUARTERS_OPTION) return null;
+    const quarter = Number(selectedQuarter);
+    if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4) return null;
+    return quarter;
+  }, [selectedQuarter]);
+
+  const loadRisks = useCallback(
+    async (options?: { year?: number | null; quarter?: number | null; groupId?: string | null }) => {
+      if (!projectId || !orderId) return;
+      setRisksState("loading");
+      setRisksError(null);
+      try {
+        const payload = await getOrderRisks(projectId, orderId, {
+          year: typeof options?.year === "number" ? options.year : undefined,
+          quarter: typeof options?.quarter === "number" ? options.quarter : undefined,
+          groupId: options?.groupId ? options.groupId : undefined,
+        });
+        setRisks(payload.risks ?? []);
+        setRisksSummary(payload.summary ?? { total: 0, high: 0, medium: 0, low: 0 });
+        setRisksState("idle");
+      } catch (err) {
+        console.error(err);
+        setRisks([]);
+        setRisksSummary({ total: 0, high: 0, medium: 0, low: 0 });
+        setRisksState("error");
+        setRisksError(getApiErrorMessage(err, "Не удалось загрузить организационные риски"));
+      }
+    },
+    [orderId, projectId]
+  );
+
   const sortedGroups = useMemo(() => {
     if (!stats) return [];
     return [...stats.groups].sort((a, b) => resolveGroupLabel(a).localeCompare(resolveGroupLabel(b)));
@@ -339,6 +534,21 @@ export default function DashboardPage() {
     if (!stats || effectiveSelectedGroupId === "all") return null;
     return stats.groups.find(group => group.groupId === effectiveSelectedGroupId) ?? null;
   }, [stats, effectiveSelectedGroupId]);
+
+  useEffect(() => {
+    if (activeTab !== "risks") return;
+    void loadRisks({
+      year: effectiveSelectedYear,
+      quarter: effectiveSelectedQuarter,
+      groupId: effectiveSelectedGroupId === "all" ? null : effectiveSelectedGroupId,
+    });
+  }, [
+    activeTab,
+    effectiveSelectedGroupId,
+    effectiveSelectedQuarter,
+    effectiveSelectedYear,
+    loadRisks,
+  ]);
 
   const isSingleGroupSelected = effectiveSelectedGroupId !== "all" && !!selectedGroup;
 
@@ -369,6 +579,13 @@ export default function DashboardPage() {
     }
     return data;
   }, [stats, selectedGroup, effectiveSelectedGroupId]);
+
+  const filteredQuarterStats = useMemo(() => {
+    if (effectiveSelectedQuarter === null) {
+      return quarterStats;
+    }
+    return quarterStats.filter(item => item.quarter === effectiveSelectedQuarter);
+  }, [effectiveSelectedQuarter, quarterStats]);
 
   const quarterGaugeData = useMemo(() => {
     const quarterStatsMap = new Map<number, DashboardQuarterStat>(
@@ -427,37 +644,84 @@ export default function DashboardPage() {
 
   const groupSizeData = useMemo(() => {
     if (!stats) return [];
-    if (effectiveSelectedGroupId === "all") {
-      return sortedGroups;
+    const sourceGroups = effectiveSelectedGroupId === "all" ? sortedGroups : selectedGroup ? [selectedGroup] : [];
+    if (effectiveSelectedQuarter === null) {
+      return sourceGroups;
     }
-    return selectedGroup ? [selectedGroup] : [];
-  }, [stats, effectiveSelectedGroupId, selectedGroup, sortedGroups]);
+    return sourceGroups.map(group => {
+      const quarterStat = group.quarters.find(item => item.quarter === effectiveSelectedQuarter);
+      const completed = quarterStat?.completed ?? 0;
+      const notCompleted = quarterStat?.notCompleted ?? 0;
+      const unverified = quarterStat?.unverified ?? 0;
+      const total = completed + notCompleted + unverified;
+      const completionRate = total ? Math.round((completed / total) * 1000) / 10 : 0;
+      return {
+        ...group,
+        total,
+        completed,
+        notCompleted,
+        unverified,
+        completionRate,
+      };
+    });
+  }, [stats, effectiveSelectedGroupId, selectedGroup, sortedGroups, effectiveSelectedQuarter]);
 
   const groupActPolarData = useMemo(() => {
     const source =
       effectiveSelectedGroupId === "all"
         ? groupActStats
         : groupActStats.filter(group => group.groupId === effectiveSelectedGroupId);
-    return [...source].sort((a, b) =>
+    return [...source]
+      .map(group => ({
+        ...group,
+        quartersLoaded:
+          effectiveSelectedQuarter === null
+            ? group.quartersLoaded
+            : group.quartersLoaded.filter(quarter => quarter === effectiveSelectedQuarter),
+      }))
+      .sort((a, b) =>
       formatGroupLabel(a.groupName).localeCompare(formatGroupLabel(b.groupName), "ru")
-    );
-  }, [effectiveSelectedGroupId, groupActStats]);
+      );
+  }, [effectiveSelectedGroupId, groupActStats, effectiveSelectedQuarter]);
 
   const groupPersonTreemapData = useMemo(() => {
+    const hasQuarterSlices = Object.keys(groupPeopleQuarters).length > 0;
+    const baseStats =
+      effectiveSelectedQuarter === null
+        ? groupPersonStats
+        : hasQuarterSlices
+          ? groupPeopleQuarters[String(effectiveSelectedQuarter)] ?? []
+          : groupPersonStats;
+
     const source =
       effectiveSelectedGroupId === "all"
-        ? groupPersonStats
-        : groupPersonStats.filter(group => group.groupId === effectiveSelectedGroupId);
+        ? baseStats
+        : baseStats.filter(group => group.groupId === effectiveSelectedGroupId);
 
     return source
       .filter(group => group.total > 0)
       .map(group => {
         const children = group.people
-          .map(person => ({
-            name: formatPersonLabel(person.fullName),
-            value: person.taskCount,
-            fullName: person.fullName,
-          }))
+          .map(person => {
+            const completed = Math.max(0, person.completed ?? 0);
+            const notCompleted = Math.max(0, person.notCompleted ?? 0);
+            const inProgress = Math.max(0, person.inProgress ?? 0);
+            const statusTotal = completed + notCompleted + inProgress;
+            const fallbackTaskCount = Math.max(0, person.taskCount ?? 0);
+            const value = statusTotal > 0 ? statusTotal : fallbackTaskCount;
+            return {
+              name: formatPersonLabel(person.fullName),
+              value,
+              fullName: person.fullName,
+              groupId: group.groupId,
+              completed,
+              notCompleted,
+              inProgress,
+              itemStyle: {
+                color: mixEmployeeStatusColor(completed, notCompleted, inProgress),
+              },
+            };
+          })
           .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, "ru"));
         const total = children.reduce((sum, item) => sum + item.value, 0);
 
@@ -468,7 +732,12 @@ export default function DashboardPage() {
           children,
         };
       });
-  }, [effectiveSelectedGroupId, groupPersonStats]);
+  }, [
+    effectiveSelectedGroupId,
+    effectiveSelectedQuarter,
+    groupPeopleQuarters,
+    groupPersonStats,
+  ]);
 
   const hasGroupPersonTreemapData = useMemo(
     () => groupPersonTreemapData.some(group => (group.children?.length ?? 0) > 0),
@@ -479,7 +748,7 @@ export default function DashboardPage() {
     if (!stats) {
       return { total: 0, completed: 0, notCompleted: 0, unverified: 0, completionRate: 0 };
     }
-    if (effectiveSelectedGroupId !== "all" && selectedGroup) {
+    if (effectiveSelectedGroupId !== "all" && selectedGroup && effectiveSelectedQuarter === null) {
       return {
         total: selectedGroup.total,
         completed: selectedGroup.completed,
@@ -488,13 +757,28 @@ export default function DashboardPage() {
         completionRate: selectedGroup.completionRate,
       };
     }
-    const completed = stats.groups.reduce((sum, group) => sum + group.completed, 0);
-    const notCompleted = stats.groups.reduce((sum, group) => sum + group.notCompleted, 0);
-    const unverified = stats.groups.reduce((sum, group) => sum + group.unverified, 0);
+    const completed = groupSizeData.reduce((sum, group) => sum + group.completed, 0);
+    const notCompleted = groupSizeData.reduce((sum, group) => sum + group.notCompleted, 0);
+    const unverified = groupSizeData.reduce((sum, group) => sum + group.unverified, 0);
     const total = completed + notCompleted + unverified;
     const completionRate = total ? Math.round((completed / total) * 1000) / 10 : 0;
     return { total, completed, notCompleted, unverified, completionRate };
-  }, [stats, effectiveSelectedGroupId, selectedGroup]);
+  }, [stats, effectiveSelectedGroupId, selectedGroup, effectiveSelectedQuarter, groupSizeData]);
+
+  const visibleRisksSummary = useMemo(() => {
+    if (riskLevelFilter === "all") {
+      return risksSummary ?? { total: risks.length, high: 0, medium: 0, low: 0 };
+    }
+    const counters = { total: 0, high: 0, medium: 0, low: 0 };
+    for (const risk of risks) {
+      if (risk.level !== riskLevelFilter) continue;
+      counters.total += 1;
+      if (risk.level === "high") counters.high += 1;
+      if (risk.level === "medium") counters.medium += 1;
+      if (risk.level === "low") counters.low += 1;
+    }
+    return counters;
+  }, [riskLevelFilter, risks, risksSummary]);
 
   const filteredArticleSankey = useMemo(() => {
     if (!articleSankey) return null;
@@ -564,6 +848,24 @@ export default function DashboardPage() {
     return fullTextById;
   }, [filteredArticleSankey]);
 
+  const articleContributorCountByNodeId = useMemo(() => {
+    const peopleByArticle = new Map<string, Set<string>>();
+    for (const link of filteredArticleSankey?.links ?? []) {
+      if (!link.target.startsWith("article:") || !link.source.startsWith("person:")) {
+        continue;
+      }
+      if (!peopleByArticle.has(link.target)) {
+        peopleByArticle.set(link.target, new Set());
+      }
+      peopleByArticle.get(link.target)!.add(link.source);
+    }
+    const counts: Record<string, number> = {};
+    peopleByArticle.forEach((set, nodeId) => {
+      counts[nodeId] = set.size;
+    });
+    return counts;
+  }, [filteredArticleSankey]);
+
   const handleArticleSankeyClick = useCallback(
     (params: { dataType?: string; data?: { name?: string }; name?: string }) => {
       if (!projectId || !orderId || params?.dataType !== "node") return;
@@ -590,6 +892,118 @@ export default function DashboardPage() {
       }
     },
     [navigate, orderId, projectId, sankeyNodeLabels, stats?.groups]
+  );
+
+  const appendDashboardTasksFiltersToSearchParams = useCallback(
+    (
+      q: URLSearchParams,
+      opts?: {
+        groupId?: string | null;
+        clickedCalendarQuarter?: number | null;
+      }
+    ) => {
+      const fromClick = opts?.groupId?.trim();
+      const fromSlice =
+        effectiveSelectedGroupId !== "all" ? effectiveSelectedGroupId.trim() : "";
+      const gid = (fromClick && fromClick.length > 0 ? fromClick : fromSlice) || "";
+      if (gid) q.set("group", gid);
+      if (typeof effectiveSelectedYear === "number") {
+        q.set("year", String(effectiveSelectedYear));
+      }
+      const clickedQ = opts?.clickedCalendarQuarter;
+      const resolvedQuarter =
+        typeof clickedQ === "number" &&
+        clickedQ >= 1 &&
+        clickedQ <= 4 &&
+        Number.isInteger(clickedQ)
+          ? clickedQ
+          : effectiveSelectedQuarter;
+      if (resolvedQuarter !== null && typeof effectiveSelectedYear === "number") {
+        q.set("quarter", `${effectiveSelectedYear}-Q${resolvedQuarter}`);
+      }
+    },
+    [effectiveSelectedGroupId, effectiveSelectedQuarter, effectiveSelectedYear]
+  );
+
+  const handleOpenUncompletedTasks = useCallback(() => {
+    if (!projectId || !orderId) return;
+    const q = new URLSearchParams();
+    q.set("status", "not_completed");
+    appendDashboardTasksFiltersToSearchParams(q);
+    navigate(`/projects/${projectId}/${orderId}/tasks?${q.toString()}`);
+  }, [
+    appendDashboardTasksFiltersToSearchParams,
+    navigate,
+    orderId,
+    projectId,
+  ]);
+
+  const handleGroupPersonTreemapClick = useCallback(
+    (params: {
+      data?: { groupId?: string; fullName?: string | null };
+      treePathInfo?: Array<{ name?: string }>;
+    }) => {
+      if (!projectId || !orderId) return;
+      const data = params?.data;
+      const searchRaw = data?.fullName?.trim();
+      const groupFromBlock = data?.groupId?.trim();
+
+      const q = new URLSearchParams();
+      if (searchRaw) q.set("search", searchRaw);
+      appendDashboardTasksFiltersToSearchParams(q, {
+        groupId: groupFromBlock || undefined,
+      });
+      navigate(`/projects/${projectId}/${orderId}/tasks?${q.toString()}`);
+    },
+    [appendDashboardTasksFiltersToSearchParams, navigate, orderId, projectId]
+  );
+
+  const handleQuarterStatusChartClick = useCallback(
+    (params: { componentType?: string; seriesType?: string; seriesName?: string; dataIndex?: number }) => {
+      if (!projectId || !orderId) return;
+      if (params.componentType !== "series" || typeof params.dataIndex !== "number") return;
+      const row = filteredQuarterStats[params.dataIndex];
+      if (!row || typeof row.quarter !== "number") return;
+
+      const status = mapDashboardStackSeriesToTasksStatus(String(params.seriesName ?? ""));
+      const q = new URLSearchParams();
+      if (status) q.set("status", status);
+      appendDashboardTasksFiltersToSearchParams(q, {
+        clickedCalendarQuarter: row.quarter,
+      });
+      navigate(`/projects/${projectId}/${orderId}/tasks?${q.toString()}`);
+    },
+    [
+      appendDashboardTasksFiltersToSearchParams,
+      filteredQuarterStats,
+      navigate,
+      orderId,
+      projectId,
+    ]
+  );
+
+  const handleGroupStatusChartClick = useCallback(
+    (params: { componentType?: string; seriesType?: string; seriesName?: string; dataIndex?: number }) => {
+      if (!projectId || !orderId) return;
+      if (params.componentType !== "series" || typeof params.dataIndex !== "number") return;
+      const group = groupSizeData[params.dataIndex];
+      if (!group?.groupId) return;
+
+      const status = mapDashboardStackSeriesToTasksStatus(String(params.seriesName ?? ""));
+      const q = new URLSearchParams();
+      if (status) q.set("status", status);
+      appendDashboardTasksFiltersToSearchParams(q, {
+        groupId: group.groupId,
+      });
+      navigate(`/projects/${projectId}/${orderId}/tasks?${q.toString()}`);
+    },
+    [
+      appendDashboardTasksFiltersToSearchParams,
+      groupSizeData,
+      navigate,
+      orderId,
+      projectId,
+    ]
   );
 
   useEffect(() => {
@@ -629,27 +1043,29 @@ export default function DashboardPage() {
     (chartId: DashboardChartId) => {
       const baseTitle = DASHBOARD_CHART_TITLES[chartId];
       const isSingleGroup = effectiveSelectedGroupId !== "all" && !!selectedGroup && !!selectedGroupNumber;
+      const quarterSuffix =
+        effectiveSelectedQuarter === null ? "" : ` (Квартал ${effectiveSelectedQuarter})`;
 
       if (!isSingleGroup) {
         if (chartId === "group-status") {
-          return "Статусы задач по группам";
+          return `Статусы задач по группам${quarterSuffix}`;
         }
-        return baseTitle;
+        return `${baseTitle}${quarterSuffix}`;
       }
 
       const groupLabelSuffix = ` (Группа ${selectedGroupNumber})`;
 
       if (chartId === "group-status") {
-        return `Статусы задач по группе`;
+        return `Статусы задач по группе${quarterSuffix}`;
       }
 
       if (chartId === "quarter-status" || chartId === "quarter-gauge") { // || chartId === "quarter-completion"
-        return `${baseTitle}${groupLabelSuffix}`;
+        return `${baseTitle}${groupLabelSuffix}${quarterSuffix}`;
       }
 
-      return baseTitle;
+      return `${baseTitle}${quarterSuffix}`;
     },
-    [effectiveSelectedGroupId, selectedGroup, selectedGroupNumber]
+    [effectiveSelectedGroupId, selectedGroup, selectedGroupNumber, effectiveSelectedQuarter]
   );
 
   const renderDashboardChart = (chartId: DashboardChartId, isPrimary: boolean) => {
@@ -665,9 +1081,10 @@ export default function DashboardPage() {
     switch (chartId) {
       case "quarter-status":
         return (
-          <div style={chartContainerStyle}>
+          <div style={{ ...chartContainerStyle, cursor: "pointer" }}>
             <ReactECharts
               style={{ height: chartHeight, width: "100%" }}
+              onEvents={{ click: handleQuarterStatusChartClick }}
               option={{
                 tooltip: { trigger: "axis" },
                 legend: { top: isPrimary ? 0 : 4, left: "center" },
@@ -677,7 +1094,7 @@ export default function DashboardPage() {
                   name: "Квартал",
                   nameLocation: "middle",
                   nameGap: isPrimary ? 28 : 24,
-                  data: quarterStats.map(item => `${item.quarter}`),
+                  data: filteredQuarterStats.map(item => `${item.quarter}`),
                 },
                 yAxis: {
                   type: "value",
@@ -690,21 +1107,21 @@ export default function DashboardPage() {
                     name: "Выполнено",
                     type: "bar",
                     stack: "total",
-                    data: quarterStats.map(item => item.completed),
+                    data: filteredQuarterStats.map(item => item.completed),
                     itemStyle: { color: "#22c55e" },
                   },
                   {
                     name: "Не выполнено",
                     type: "bar",
                     stack: "total",
-                    data: quarterStats.map(item => item.notCompleted),
+                    data: filteredQuarterStats.map(item => item.notCompleted),
                     itemStyle: { color: "#f97316" },
                   },
                   {
                     name: "Не проверено",
                     type: "bar",
                     stack: "total",
-                    data: quarterStats.map(item => item.unverified),
+                    data: filteredQuarterStats.map(item => item.unverified),
                     itemStyle: { color: "#8b5cf6" },
                   },
                 ],
@@ -718,22 +1135,7 @@ export default function DashboardPage() {
           <div style={{ ...chartContainerStyle, cursor: "pointer" }}>
             <ReactECharts
               style={{ height: chartHeight, width: "100%" }}
-              onEvents={{
-                click: (params: { componentType?: string; dataIndex?: number }) => {
-                  if (
-                    params?.componentType === "series" &&
-                    typeof params?.dataIndex === "number" &&
-                    projectId &&
-                    orderId
-                  ) {
-                    const group = groupSizeData[params.dataIndex];
-                    if (group?.groupId) {
-                      const q = new URLSearchParams({ group: group.groupId });
-                      navigate(`/projects/${projectId}/${orderId}/tasks?${q}`);
-                    }
-                  }
-                },
-              }}
+              onEvents={{ click: handleGroupStatusChartClick }}
               option={{
                 tooltip: { trigger: "axis" },
                 legend: { top: isPrimary ? 0 : 4, left: "center" },
@@ -916,7 +1318,7 @@ export default function DashboardPage() {
                       };
                     }) => {
                       if (params.seriesName !== "Кварталы" || params.data?.isPlaceholder) return "";
-                      const quarter = params.data?.quarter ?? "—";
+                      const quarter = params.data?.quarter ?? "–";
                       const completionRate = params.data?.completionRate ?? 0;
                       const quarterNumber = typeof quarter === "number" ? quarter : 0;
                       const groupRows = quarterGaugeGroupBreakdown.get(quarterNumber) ?? [];
@@ -1058,7 +1460,10 @@ export default function DashboardPage() {
                   legend: {
                     top: isPrimary ? 0 : 4,
                     left: "center",
-                    data: QUARTERS.map(quarter => ({
+                    data: (effectiveSelectedQuarter === null
+                      ? QUARTERS
+                      : [effectiveSelectedQuarter]
+                    ).map(quarter => ({
                       name: `Квартал ${quarter}`,
                       icon: "circle",
                       itemStyle: { color: QUARTER_ACT_COLORS[quarter] },
@@ -1096,7 +1501,10 @@ export default function DashboardPage() {
                       lineStyle: { color: "rgba(148, 163, 184, 0.35)", type: "dashed" },
                     },
                   },
-                  series: QUARTERS.map(quarter => ({
+                  series: (effectiveSelectedQuarter === null
+                    ? QUARTERS
+                    : [effectiveSelectedQuarter]
+                  ).map(quarter => ({
                     name: `Квартал ${quarter}`,
                     type: "bar",
                     coordinateSystem: "polar",
@@ -1129,28 +1537,10 @@ export default function DashboardPage() {
               <div className="empty-state">Нет данных по сотрудникам для treemap.</div>
             ) : (
               <ReactECharts
+                key={`group-person-treemap-${effectiveSelectedQuarter ?? "all"}-${effectiveSelectedGroupId}`}
                 style={{ height: chartHeight, width: "100%", cursor: "pointer" }}
                 onEvents={{
-                  click: (params: {
-                    data?: { groupId?: string; fullName?: string };
-                    treePathInfo?: Array<{ name?: string }>;
-                  }) => {
-                    if (!projectId || !orderId) return;
-                    const data = params?.data;
-                    const fullName = data?.fullName?.trim();
-                    const groupId = data?.groupId?.trim();
-
-                    if (fullName) {
-                      const q = new URLSearchParams({ search: fullName });
-                      navigate(`/projects/${projectId}/${orderId}/tasks?${q}`);
-                      return;
-                    }
-
-                    if (groupId) {
-                      const q = new URLSearchParams({ group: groupId });
-                      navigate(`/projects/${projectId}/${orderId}/tasks?${q}`);
-                    }
-                  },
+                  click: handleGroupPersonTreemapClick,
                 }}
                 option={{
                   tooltip: {
@@ -1158,15 +1548,35 @@ export default function DashboardPage() {
                       name?: string;
                       value?: number | number[];
                       treePathInfo?: Array<{ name?: string }>;
+                      data?: {
+                        completed?: number;
+                        notCompleted?: number;
+                        inProgress?: number;
+                        children?: unknown[];
+                      };
                     }) => {
+                      const path =
+                        params.treePathInfo?.map(item => item.name).filter(Boolean).join(" / ") ??
+                        params.name ??
+                        "–";
+                      const data = params.data;
+                      const isEmployeeNode =
+                        data &&
+                        !Array.isArray(data.children) &&
+                        (typeof data.completed === "number" ||
+                          typeof data.notCompleted === "number" ||
+                          typeof data.inProgress === "number");
+
+                      if (isEmployeeNode) {
+                        const completed = data.completed ?? 0;
+                        const notCompleted = data.notCompleted ?? 0;
+                        const inProgress = data.inProgress ?? 0;
+                        return `${path}<br/>Выполнено: ${completed}<br/>Не выполнено: ${notCompleted}<br/>В работе: ${inProgress}`;
+                      }
+
                       const rawValue = Array.isArray(params.value) ? params.value[0] : params.value;
                       const value = typeof rawValue === "number" ? rawValue : 0;
-                      const path =
-                        params.treePathInfo?.map(item => item.name).filter(Boolean).join(" / ") ?? "";
-                      if (path) {
-                        return `${path}<br/>Задач: ${value}`;
-                      }
-                      return `${params.name ?? "—"}<br/>Задач: ${value}`;
+                      return `${path}<br/>Всего задач: ${value}`;
                     },
                   },
                   series: [
@@ -1174,8 +1584,6 @@ export default function DashboardPage() {
                       type: "treemap",
                       roam: false,
                       nodeClick: false,
-                      color: [...GROUP_PERSON_TREEMAP_COLORS],
-                      colorMappingBy: "index",
                       breadcrumb: { show: false },
                       upperLabel: {
                         show: true,
@@ -1186,8 +1594,9 @@ export default function DashboardPage() {
                       },
                       label: {
                         show: true,
-                        fontSize: isPrimary ? 12 : 10,
-                      color: "#ffffff",
+                        fontSize: isPrimary ? 13 : 11,
+                        fontWeight: 500,
+                        color: "#0f172a",
                         formatter: (params: { name: string; value?: number | number[] }) => {
                           const rawValue = Array.isArray(params.value) ? params.value[0] : params.value;
                           const value = typeof rawValue === "number" ? rawValue : 0;
@@ -1217,18 +1626,10 @@ export default function DashboardPage() {
                         },
                         {
                           itemStyle: {
-                            borderColor: "#f8fafc",
+                            borderColor: "#e2e8f0",
                             borderWidth: 1,
                             gapWidth: 1,
                           },
-                          colorSaturation: [0.35, 0.45],
-                        },
-                        {
-                          color: ['#00AEFF', '#00A7F4','#009FE8','#0899DC','#008FD1'],
-                          colorMappingBy: 'value',
-                          itemStyle: {
-                            gapWidth: 1
-                          }
                         },
                       ],
                       data: groupPersonTreemapData,
@@ -1302,7 +1703,9 @@ export default function DashboardPage() {
                           if (!params.name.startsWith("article:")) {
                             return label;
                           }
-                          return wrapTextByWords(label, 30);
+                          const contributors = articleContributorCountByNodeId[params.name] ?? 0;
+                          const effectiveCount = contributors > 0 ? contributors : 5;
+                          return formatArticleSankeyNodeLabel(label, effectiveCount);
                         },
                       },
                       levels: [
@@ -1345,10 +1748,26 @@ export default function DashboardPage() {
       <Link to={`/projects/${projectId}`} className="back-link">
         ← Назад к проекту
       </Link>
-      <h1 className="page-title">Инфографика приказа "{order?.fileName.split(".")[0] ?? "—"}"</h1>
-      <p className="subtitle">Проект "{project?.name ?? "—"}"</p>
+      <h1 className="page-title">Цифровой портрет приказа "{order?.fileName.split(".")[0] ?? "–"}"</h1>
+      <p className="subtitle">Проект "{project?.name ?? "–"}"</p>
 
       <div className="dashboard-card">
+        <div className="dashboard-tabs">
+          <button
+            type="button"
+            className={`dashboard-tab ${activeTab === "infographics" ? "dashboard-tab--active" : ""}`}
+            onClick={() => setActiveTab("infographics")}
+          >
+            Инфографика
+          </button>
+          <button
+            type="button"
+            className={`dashboard-tab ${activeTab === "risks" ? "dashboard-tab--active" : ""}`}
+            onClick={() => setActiveTab("risks")}
+          >
+            Организационные риски
+          </button>
+        </div>
         <div className="dashboard-controls">
           <label className="form-field dashboard-group-filter">
             <span className="form-field-label">Срез</span>
@@ -1362,6 +1781,22 @@ export default function DashboardPage() {
               {sortedGroups.map(group => (
                 <option key={group.groupId} value={group.groupId}>
                   {resolveGroupLabel(group)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field">
+            <span className="form-field-label">Квартал</span>
+            <select
+              className="form-control group-name-selector"
+              value={selectedQuarter}
+              onChange={event => setSelectedQuarter(event.target.value)}
+              disabled={statsState === "loading"}
+            >
+              <option value={ALL_QUARTERS_OPTION}>Все кварталы</option>
+              {QUARTERS.map(quarter => (
+                <option key={quarter} value={quarter}>
+                  {`Квартал ${quarter}`}
                 </option>
               ))}
             </select>
@@ -1395,16 +1830,15 @@ export default function DashboardPage() {
               )}
             </select>
           </label>
-          {/* <button
+          <button
             type="button"
             className="secondary dashboard-refresh-button"
-            onClick={() => {
-              void loadInfographics({ force: true, year: effectiveSelectedYear });
-            }}
+            onClick={handleOpenUncompletedTasks}
             disabled={statsState === "loading"}
+            title="Открыть список задач приказа с фильтром «Не выполнено» и текущими годом, кварталом и срезом по группе"
           >
-            Обновить
-          </button> */}
+            Невыполненные задачи
+          </button>
         </div>
 
         {statsState === "loading" && <div>Подготовка инфографики...</div>}
@@ -1417,7 +1851,11 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {statsState === "idle" && stats && stats.groups.length > 0 && sortedAvailableYears.length > 0 && (
+      {activeTab === "infographics" &&
+        statsState === "idle" &&
+        stats &&
+        stats.groups.length > 0 &&
+        sortedAvailableYears.length > 0 && (
         <div
           className={`dashboard-charts-shell${
             isPrimaryChartExpanded ? " dashboard-charts-shell--expanded" : ""
@@ -1426,18 +1864,21 @@ export default function DashboardPage() {
           <div className="dashboard-primary-panel">
             <div className="card dashboard-chart-card dashboard-chart-card--primary">
               <div className="dashboard-chart-header">
-                <h3 style={{ margin: 0 }}>
+                <h3 style={{ margin: 0, fontSize: 15 }}>
                   {resolveChartTitle(pendingPrimaryChartId ?? primaryChartId)}
                 </h3>
-                <button
-                  type="button"
-                  className="dashboard-chart-expand-button"
-                  aria-label={isPrimaryChartExpanded ? "Уменьшить график" : "Увеличить график"}
-                  title={isPrimaryChartExpanded ? "Уменьшить" : "Увеличить"}
-                  onClick={() => setIsPrimaryChartExpanded(expanded => !expanded)}
-                >
-                  <span aria-hidden="true">{isPrimaryChartExpanded ? "⤡" : "⤢"}</span>
-                </button>
+                <div className="dashboard-chart-header-actions">
+                  <DashboardChartHelpButton chartId={pendingPrimaryChartId ?? primaryChartId} />
+                  <button
+                    type="button"
+                    className="dashboard-chart-expand-button"
+                    aria-label={isPrimaryChartExpanded ? "Уменьшить график" : "Увеличить график"}
+                    title={isPrimaryChartExpanded ? "Уменьшить" : "Увеличить"}
+                    onClick={() => setIsPrimaryChartExpanded(expanded => !expanded)}
+                  >
+                    <span aria-hidden="true">{isPrimaryChartExpanded ? "⤡" : "⤢"}</span>
+                  </button>
+                </div>
               </div>
               {isPrimaryChartClearing ? (
                 <div
@@ -1475,10 +1916,13 @@ export default function DashboardPage() {
                 }}
               >
                 <div className="dashboard-chart-header">
-                  <h3 style={{ margin: 0 }}>{resolveChartTitle(chartId)}</h3>
-                  <span className="dashboard-chart-swap-icon" aria-hidden="true">
-                    ⇄
-                  </span>
+                  <h3 style={{ margin: 0, fontSize: 15 }}>{resolveChartTitle(chartId)}</h3>
+                  <div className="dashboard-chart-header-actions">
+                    <DashboardChartHelpButton chartId={chartId} stopPropagation />
+                    <span className="dashboard-chart-swap-icon" aria-hidden="true">
+                      ⇄
+                    </span>
+                  </div>
                 </div>
                 {renderDashboardChart(chartId, false)}
               </div>
@@ -1487,7 +1931,18 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {statsState === "idle" &&
+      {activeTab === "risks" && (
+        <DashboardRisksTab
+          loading={risksState === "loading"}
+          error={risksError}
+          risks={risks}
+          levelFilter={riskLevelFilter}
+          onLevelFilterChange={setRiskLevelFilter}
+        />
+      )}
+
+      {activeTab === "infographics" &&
+        statsState === "idle" &&
         stats &&
         stats.groups.length > 0 &&
         sortedAvailableYears.length > 0 && (
@@ -1513,6 +1968,26 @@ export default function DashboardPage() {
             </span>
           </StatusBar>
         )}
+
+      {activeTab === "risks" && risksState === "idle" && (
+        <StatusBar multiline>
+          <span>
+            Всего рисков: <strong>{visibleRisksSummary.total}</strong>
+          </span>
+          <StatusBarDot />
+          <span style={{ color: "#b91c1c" }}>
+            Высокий: <strong>{visibleRisksSummary.high}</strong>
+          </span>
+          <StatusBarDot />
+          <span style={{ color: "#b45309" }}>
+            Средний: <strong>{visibleRisksSummary.medium}</strong>
+          </span>
+          <StatusBarDot />
+          <span style={{ color: "#047857" }}>
+            Низкий: <strong>{visibleRisksSummary.low}</strong>
+          </span>
+        </StatusBar>
+      )}
     </div>
   );
 }

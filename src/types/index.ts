@@ -3,6 +3,8 @@ export type ProjectStatus = "planned" | "in_progress" | "completed";
 export type Project = {
   id: string;
   name: string;
+  shortName?: string;
+  fullName?: string;
   createdAt?: string;
   status?: ProjectStatus;
   tag?: string;
@@ -104,6 +106,9 @@ export type TaskRecord = {
   actUnits?: string | null;
   actTaskAnnotation?: string | null;
   actDeadlineDate?: string | null;
+  unitsSimilarityPercent?: number | null;
+  unitsWarning?: boolean;
+  unitsBlocked?: boolean;
   deadline?: string | null;
   status?: string | null;
   isProfessionalChecked?: boolean;
@@ -121,10 +126,27 @@ export type TaskStatusHistorySource = "manual" | "auto";
 export type TaskStatusHistoryRecord = {
   id: string;
   orderId: string;
-  taskId: number;
+  taskId?: number | null;
+  actId?: string | null;
+  unmatchedDone?: boolean;
   groupId?: string | null;
   fullName?: string | null;
   taskText?: string | null;
+  units?: string | null;
+  actFullName?: string | null;
+  actTaskText?: string | null;
+  actUnits?: string | null;
+  orderGroupShort?: string | null;
+  actGroupShort?: string | null;
+  deadline?: string | null;
+  actDeadline?: string | null;
+  taskReport?: string | null;
+  actTaskAnnotation?: string | null;
+  unitsSimilarityPercent?: number | null;
+  unitsWarning?: boolean;
+  unitsBlocked?: boolean;
+  decision?: string | null;
+  decisionReason?: string | null;
   oldStatus?: string | null;
   newStatus: string;
   source: TaskStatusHistorySource;
@@ -184,6 +206,9 @@ export type ArticleSankeyData = {
 export type DashboardPersonTaskStat = {
   fullName: string;
   taskCount: number;
+  completed: number;
+  notCompleted: number;
+  inProgress: number;
 };
 
 export type DashboardGroupPeopleStat = {
@@ -203,6 +228,7 @@ export type DashboardInfographicsData = {
   stats: DashboardStats;
   articleSankey: ArticleSankeyData;
   groupPeople: DashboardGroupPeopleStat[];
+  groupPeopleQuarters?: Record<string, DashboardGroupPeopleStat[]>;
   groupActs?: DashboardGroupActStat[];
   availableYears?: number[];
   selectedYear?: number | null;
@@ -215,4 +241,36 @@ export type DashboardInfographicsResponse = {
   error?: string | null;
   startedAt?: string | null;
   updatedAt?: string | null;
+};
+
+export type OrganizationalRiskLevel = "high" | "medium" | "low";
+
+export type OrganizationalRiskItem = {
+  level: OrganizationalRiskLevel;
+  type: string;
+  message: string;
+  groupId?: string | null;
+  groupName?: string | null;
+  quarter?: number | null;
+  taskId?: number | null;
+  taskText?: string | null;
+  fullName?: string | null;
+  metrics: Record<string, string | number | boolean | null>;
+};
+
+export type OrganizationalRiskSummary = {
+  total: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+export type OrganizationalRisksResponse = {
+  projectId: string;
+  orderId: string;
+  year?: number | null;
+  quarter?: number | null;
+  groupId?: string | null;
+  summary: OrganizationalRiskSummary;
+  risks: OrganizationalRiskItem[];
 };

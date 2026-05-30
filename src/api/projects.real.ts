@@ -9,6 +9,7 @@ import type {
   GroupRecord,
   TemplateRecord,
   GroupTasks,
+  OrganizationalRisksResponse,
   TaskStatusHistoryRecord,
   DashboardStats,
 } from "../types";
@@ -254,6 +255,28 @@ export async function getOrderArticleSankey(
   orderId: string
 ): Promise<ArticleSankeyData> {
   const res = await api.get(`/projects/${projectId}/orders/${orderId}/article-sankey`, {
+    timeout: DASHBOARD_REQUEST_TIMEOUT_MS,
+  });
+  return res.data;
+}
+
+export async function getOrderRisks(
+  projectId: string,
+  orderId: string,
+  options?: { year?: number; quarter?: number; groupId?: string }
+): Promise<OrganizationalRisksResponse> {
+  const params: Record<string, string | number> = {};
+  if (typeof options?.year === "number") {
+    params.year = options.year;
+  }
+  if (typeof options?.quarter === "number") {
+    params.quarter = options.quarter;
+  }
+  if (options?.groupId) {
+    params.group_id = options.groupId;
+  }
+  const res = await api.get(`/projects/${projectId}/orders/${orderId}/risks`, {
+    params,
     timeout: DASHBOARD_REQUEST_TIMEOUT_MS,
   });
   return res.data;

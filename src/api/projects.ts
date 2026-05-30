@@ -31,3 +31,5 @@ export const updateTasksProfessionalCheckedBulk = activeApi.updateTasksProfessio
 export const getOrderStats = activeApi.getOrderStats;
 export const getOrderInfographics = activeApi.getOrderInfographics;
 export const getOrderArticleSankey = activeApi.getOrderArticleSankey;
+export const getOrderRisks = activeApi.getOrderRisks;
+
