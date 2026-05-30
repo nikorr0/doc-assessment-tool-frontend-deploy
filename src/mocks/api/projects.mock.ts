@@ -12,16 +12,22 @@ import type {
   GroupRecord,
   GroupTasks,
   OrderRawResponse,
+  OrganizationalRiskItem,
+  OrganizationalRisksResponse,
   Project,
   TaskRecord,
   TaskStatusHistoryRecord,
   TemplateRecord,
 } from "../../types";
-import type { BulkTaskProfessionalCheckedResult } from "../../api/projects.real";
+import type {
+  BulkTaskProfessionalCheckedResult,
+  BulkTaskStatusUpdateResult,
+} from "../../api/projects.real";
 import { getDb, getOrderYearKey, type DocumentValidationMockState } from "../store/db";
 import { deepClone } from "../utils/clone";
 import { getMockScenario, withNetworkDelay } from "../utils/delay";
 import { nextId } from "../utils/id";
+import { resolveMockTaskUnits } from "../utils/taskUnits";
 
 const VALID_TASK_STATUSES = new Set(["Не выполнено", "В работе", "Выполнено"]);
 const TASK_DEADLINE_YEAR = 2026;
@@ -132,6 +138,19 @@ function roundRate(value: number): number {
 function isCompletedStatus(status?: string | null): boolean {
   const normalized = status?.trim().toLowerCase() ?? "";
   return normalized.startsWith("выполн");
+}
+
+function syncProfessionalCheckedWithStatus(task: TaskRecord): void {
+  if (!isCompletedStatus(task.status)) {
+    task.isProfessionalChecked = false;
+  }
+}
+
+function applyProfessionalChecked(task: TaskRecord, isProfessionalChecked: boolean): void {
+  if (isProfessionalChecked && !isCompletedStatus(task.status)) {
+    throw new Error("Профессиональная проверка доступна только для выполненных задач");
+  }
+  task.isProfessionalChecked = isProfessionalChecked;
 }
 
 function getTaskYear(deadline?: string | null): number | null {
@@ -374,6 +393,220 @@ function getOrderTasks(orderId: string): TaskRecord[] {
   return Object.values(tasksByGroup).flat();
 }
 
+const UNCHECKED_COMPLETED_RISK_MESSAGE =
+  "Большинство выполненных задач не имеют профессиональной проверки.";
+const LOW_COMPLETION_RATE_MESSAGE = "Доля выполненных задач ниже ожидаемого уровня";
+const UNEVEN_WORKLOAD_MESSAGE =
+  "Нагрузка между исполнителями внутри группы распределена заметно неравномерно";
+const EXPECTED_COMPLETION_RATE = 70;
+
+type GroupWorkloadAnalysis = {
+  uneven: boolean;
+  maxPerson: string;
+  maxCount: number;
+  minCount: number;
+  median: number;
+};
+
+function analyzeGroupWorkload(groupTasks: TaskRecord[]): GroupWorkloadAnalysis {
+  const counter = new Map<string, number>();
+  groupTasks.forEach(task => {
+    const fullName = task.fullName?.trim() || "Не указано";
+    counter.set(fullName, (counter.get(fullName) ?? 0) + 1);
+  });
+
+  const entries = Array.from(counter.entries()).sort((left, right) => right[1] - left[1]);
+  if (entries.length < 2) {
+    return { uneven: false, maxPerson: "", maxCount: 0, minCount: 0, median: 0 };
+  }
+
+  const counts = entries.map(([, count]) => count).sort((left, right) => left - right);
+  const maxCount = counts[counts.length - 1] ?? 0;
+  const minCount = counts[0] ?? 0;
+  const median = counts[Math.floor(counts.length / 2)] ?? 0;
+  const [maxPerson, maxPersonCount] = entries[0];
+  const uneven =
+    maxCount >= 2 &&
+    minCount > 0 &&
+    maxCount >= 1.75 * median &&
+    maxCount - minCount >= 3;
+
+  return {
+    uneven,
+    maxPerson,
+    maxCount: maxPersonCount,
+    minCount,
+    median,
+  };
+}
+
+function quarterFromDeadline(deadline?: string | null): number | null {
+  if (!deadline) return null;
+  const month = new Date(deadline).getUTCMonth() + 1;
+  return Math.ceil(month / 3);
+}
+
+function yearFromDeadline(deadline?: string | null): number | null {
+  if (!deadline) return null;
+  return new Date(deadline).getUTCFullYear();
+}
+
+function filterTasksForRisks(
+  orderId: string,
+  options?: { year?: number; quarter?: number; groupId?: string }
+): TaskRecord[] {
+  let tasks = getOrderTasks(orderId);
+  if (options?.groupId) {
+    tasks = tasks.filter(task => task.groupId === options.groupId);
+  }
+  if (typeof options?.year === "number") {
+    tasks = tasks.filter(task => yearFromDeadline(task.deadline) === options.year);
+  }
+  if (typeof options?.quarter === "number") {
+    tasks = tasks.filter(task => quarterFromDeadline(task.deadline) === options.quarter);
+  }
+  return tasks;
+}
+
+function isTaskOverdue(task: TaskRecord, now = new Date()): boolean {
+  if (!task.deadline || task.status === "Выполнено") return false;
+  const deadline = new Date(task.deadline);
+  if (Number.isNaN(deadline.getTime())) return false;
+  return deadline.getTime() < now.getTime();
+}
+
+function buildOrganizationalRisks(
+  projectId: string,
+  orderId: string,
+  options?: { year?: number; quarter?: number; groupId?: string }
+): OrganizationalRisksResponse {
+  const db = getDb();
+  const groups = (db.groupsByOrderId[orderId] ?? []).filter(group =>
+    options?.groupId ? group.groupId === options.groupId : true
+  );
+  const tasks = filterTasksForRisks(orderId, options);
+  const risks: OrganizationalRiskItem[] = [];
+
+  for (const group of groups) {
+    const groupTasks = tasks.filter(task => task.groupId === group.groupId);
+    const uncheckedCompleted = groupTasks.filter(
+      task => task.status === "Выполнено" && !task.isProfessionalChecked
+    );
+    if (uncheckedCompleted.length >= 2) {
+      const completedCount = groupTasks.filter(task => isCompletedStatus(task.status)).length;
+      const uncheckedCompletedPercent = completedCount
+        ? roundRate((uncheckedCompleted.length / completedCount) * 100)
+        : 0;
+      risks.push({
+        level: uncheckedCompleted.length >= 4 ? "high" : "medium",
+        type: "unchecked_completed",
+        message: UNCHECKED_COMPLETED_RISK_MESSAGE,
+        groupId: group.groupId,
+        groupName: group.groupName ?? group.groupId,
+        quarter: options?.quarter ?? null,
+        metrics: {
+          uncheckedCompleted: uncheckedCompleted.length,
+          uncheckedCompletedPercent,
+          completed: completedCount,
+        },
+      });
+    }
+
+    if (groupTasks.length >= 4) {
+      const completedCount = groupTasks.filter(task => isCompletedStatus(task.status)).length;
+      const completionRate = roundRate((completedCount / groupTasks.length) * 100);
+      if (completionRate < EXPECTED_COMPLETION_RATE) {
+        risks.push({
+          level: "high",
+          type: "low_completion_rate",
+          message: LOW_COMPLETION_RATE_MESSAGE,
+          groupId: group.groupId,
+          groupName: group.groupName ?? group.groupId,
+          quarter: options?.quarter ?? null,
+          metrics: {
+            completionRate,
+            completed: completedCount,
+            total: groupTasks.length,
+          },
+        });
+      }
+    }
+
+    const workload = analyzeGroupWorkload(groupTasks);
+    if (workload.uneven) {
+      risks.push({
+        level: "medium",
+        type: "uneven_workload",
+        message: UNEVEN_WORKLOAD_MESSAGE,
+        groupId: group.groupId,
+        groupName: group.groupName ?? group.groupId,
+        quarter: options?.quarter ?? null,
+        fullName: workload.maxPerson,
+        metrics: {
+          personTasks: workload.maxCount,
+          groupMedianTasks: workload.median,
+          ratioToMedian: workload.median ? roundRate(workload.maxCount / workload.median) : null,
+        },
+      });
+    }
+  }
+
+  for (const task of tasks) {
+    const group = groups.find(item => item.groupId === task.groupId);
+    const quarter = quarterFromDeadline(task.deadline);
+
+    if (task.unitsWarning && !task.unitsBlocked) {
+      risks.push({
+        level: "low",
+        type: "units_soft_warning",
+        message: "Единица измерения в акте отличается от приказа.",
+        groupId: task.groupId,
+        groupName: group?.groupName ?? task.groupId,
+        quarter,
+        taskId: task.taskId,
+        taskText: task.taskText,
+        fullName: task.fullName,
+        metrics: {},
+      });
+    }
+
+    if (isTaskOverdue(task)) {
+      risks.push({
+        level: "medium",
+        type: "overdue_deadline",
+        message: "Срок выполнения задачи истёк.",
+        groupId: task.groupId,
+        groupName: group?.groupName ?? task.groupId,
+        quarter,
+        taskId: task.taskId,
+        taskText: task.taskText,
+        fullName: task.fullName,
+        metrics: {
+          deadline: task.deadline ?? null,
+          status: task.status ?? null,
+        },
+      });
+    }
+  }
+
+  const summary = {
+    total: risks.length,
+    high: risks.filter(risk => risk.level === "high").length,
+    medium: risks.filter(risk => risk.level === "medium").length,
+    low: risks.filter(risk => risk.level === "low").length,
+  };
+
+  return {
+    projectId,
+    orderId,
+    year: options?.year ?? null,
+    quarter: options?.quarter ?? null,
+    groupId: options?.groupId ?? null,
+    summary,
+    risks,
+  };
+}
+
 /** Демонстрационные записи для блока «История изменения статусов» в прототипе. */
 function buildMockTaskStatusHistoryForOrder(orderId: string): TaskStatusHistoryRecord[] {
   const tasks = getOrderTasks(orderId)
@@ -392,7 +625,7 @@ function buildMockTaskStatusHistoryForOrder(orderId: string): TaskStatusHistoryR
   };
 
   const templates: Template[] = [
-    { taskIndex: 0, oldStatus: "Не выполнено", newStatus: "В работе", source: "manual", minutesAgo: 28 },
+    { taskIndex: 0, oldStatus: "Не выполнено", newStatus: "Выполнено", source: "manual", minutesAgo: 28 },
     { taskIndex: 1, oldStatus: "В работе", newStatus: "Выполнено", source: "auto", minutesAgo: 52 },
     { taskIndex: 2, oldStatus: "Не выполнено", newStatus: "В работе", source: "auto", minutesAgo: 95 },
     { taskIndex: 0, oldStatus: "В работе", newStatus: "Выполнено", source: "manual", minutesAgo: 140 },
@@ -411,6 +644,19 @@ function buildMockTaskStatusHistoryForOrder(orderId: string): TaskStatusHistoryR
       groupId: task.groupId,
       fullName: task.fullName,
       taskText: task.taskText,
+      units: task.units,
+      actFullName: task.fullName,
+      actTaskText: task.actTaskText,
+      actUnits: task.actUnits,
+      deadline: task.deadline,
+      actDeadline: task.actDeadlineDate,
+      taskReport: task.taskReport,
+      actTaskAnnotation: task.actTaskAnnotation,
+      unitsSimilarityPercent: task.unitsSimilarityPercent,
+      unitsWarning: task.unitsWarning,
+      unitsBlocked: task.unitsBlocked,
+      decision: tpl.source === "auto" ? "Автоматическое изменение" : "Ручное изменение",
+      decisionReason: tpl.source === "auto" ? "Сопоставление с актом" : null,
       oldStatus: tpl.oldStatus,
       newStatus: tpl.newStatus,
       source: tpl.source,
@@ -432,7 +678,9 @@ function buildQuarterStats(tasks: TaskRecord[]): DashboardQuarterStat[] {
     const quarterTasks = tasks.filter(task => getTaskQuarter(task.deadline) === quarter);
     const completed = quarterTasks.filter(task => isCompletedStatus(task.status)).length;
     const notCompleted = quarterTasks.length - completed;
-    const unverified = quarterTasks.filter(task => !task.isProfessionalChecked).length;
+    const unverified = quarterTasks.filter(
+      task => isCompletedStatus(task.status) && !task.isProfessionalChecked
+    ).length;
     const completionRate = quarterTasks.length ? roundRate((completed / quarterTasks.length) * 100) : 0;
     return {
       quarter,
@@ -454,7 +702,9 @@ function buildDashboardStats(projectId: string, orderId: string, selectedYear: n
     const tasks = (tasksByGroup[group.groupId] ?? []).filter(task => getTaskYear(task.deadline) === selectedYear);
     const completed = tasks.filter(task => isCompletedStatus(task.status)).length;
     const notCompleted = tasks.length - completed;
-    const unverified = tasks.filter(task => !task.isProfessionalChecked).length;
+    const unverified = tasks.filter(
+      task => isCompletedStatus(task.status) && !task.isProfessionalChecked
+    ).length;
     const quarters = buildQuarterStats(tasks);
     const completionRate = tasks.length ? roundRate((completed / tasks.length) * 100) : 0;
     return {
@@ -491,13 +741,30 @@ function buildGroupPeopleStats(orderId: string, selectedYear: number): Dashboard
     const sourceTasks = (tasksByGroup[group.groupId] ?? []).filter(
       task => getTaskYear(task.deadline) === selectedYear
     );
-    const counter = new Map<string, number>();
+    const counter = new Map<
+      string,
+      { taskCount: number; completed: number; notCompleted: number; inProgress: number }
+    >();
     sourceTasks.forEach(task => {
       const fullName = task.fullName?.trim() || "Не указано";
-      counter.set(fullName, (counter.get(fullName) ?? 0) + 1);
+      const entry = counter.get(fullName) ?? {
+        taskCount: 0,
+        completed: 0,
+        notCompleted: 0,
+        inProgress: 0,
+      };
+      entry.taskCount += 1;
+      if (isCompletedStatus(task.status)) {
+        entry.completed += 1;
+      } else if (task.status === "В работе") {
+        entry.inProgress += 1;
+      } else {
+        entry.notCompleted += 1;
+      }
+      counter.set(fullName, entry);
     });
     const people = Array.from(counter.entries())
-      .map(([fullName, taskCount]) => ({ fullName, taskCount }))
+      .map(([fullName, stats]) => ({ fullName, ...stats }))
       .sort((a, b) => b.taskCount - a.taskCount || a.fullName.localeCompare(b.fullName, "ru"));
     const total = people.reduce((acc, item) => acc + item.taskCount, 0);
     return {
@@ -736,11 +1003,13 @@ function createStarterTasks(groupId: string, groupIndex: number): TaskRecord[] {
   let taskNumber = 1;
   const plan = getGroupQuarterPlan(groupIndex);
   const totalTasks = plan.taskCounts.reduce((acc, count) => acc + count, 0);
-  const personAssignment = buildPersonAssignment(
-    STARTER_PEOPLE[groupIndex],
-    totalTasks,
-    groupIndex
-  );
+  const starterPeople = STARTER_PEOPLE[groupIndex];
+  let personAssignment = buildPersonAssignment(starterPeople, totalTasks, groupIndex);
+  if (groupIndex === 1 || groupIndex === 4) {
+    personAssignment = personAssignment.map((person, index) =>
+      index % 2 === 0 ? starterPeople[0] : person
+    );
+  }
   let assignmentIndex = 0;
   for (let quarter = 1; quarter <= 4; quarter += 1) {
     const quarterIndex = quarter - 1;
@@ -750,17 +1019,21 @@ function createStarterTasks(groupId: string, groupIndex: number): TaskRecord[] {
     for (let quarterTaskIndex = 0; quarterTaskIndex < quarterTaskCount; quarterTaskIndex += 1) {
       const assignedPerson =
         personAssignment[assignmentIndex] ??
-        STARTER_PEOPLE[groupIndex][(quarterTaskIndex + groupIndex) % STARTER_PEOPLE[groupIndex].length];
+        starterPeople[(quarterTaskIndex + groupIndex) % starterPeople.length];
+      const unitsIndex = taskNumber - 1;
+      const unitsFields = resolveMockTaskUnits(unitsIndex);
       tasks.push({
         taskId: taskIdSequence++,
         groupId,
         fullName: assignedPerson,
-        taskText: `${STARTER_TASKS[(taskNumber - 1) % STARTER_TASKS.length]} №${taskNumber}`,
-        units: "публикация",
+        taskText: `${STARTER_TASKS[unitsIndex % STARTER_TASKS.length]} №${taskNumber}`,
+        ...unitsFields,
+        actTaskText: `Акт: ${STARTER_TASKS[unitsIndex % STARTER_TASKS.length]} №${taskNumber}`,
         taskReport: `Отчет по задаче №${taskNumber}`,
         deadline: toQuarterDeadline(quarter),
         status: quarterTaskIndex < quarterCompletedCount ? "Выполнено" : "Не выполнено",
-        isProfessionalChecked: quarterTaskIndex >= quarterUnverifiedCount,
+        isProfessionalChecked:
+          quarterTaskIndex < quarterCompletedCount && quarterTaskIndex >= quarterUnverifiedCount,
       });
       taskNumber += 1;
       assignmentIndex += 1;
@@ -793,6 +1066,7 @@ function touchGroupTaskAsInProgress(orderId: string, groupId: string): void {
   const target = tasks.find(task => !isCompletedStatus(task.status));
   if (target) {
     target.status = "В работе";
+    syncProfessionalCheckedWithStatus(target);
   }
 }
 
@@ -819,14 +1093,17 @@ function findTask(orderId: string, taskId: number): TaskRecord | null {
 }
 
 export async function createProject(
-  name: string,
+  shortName: string,
+  fullName: string,
   options?: { status?: import("../../types").ProjectStatus; tag?: string; comment?: string; createdAt?: string; supervisor?: string }
 ): Promise<Project> {
   await withNetworkDelay();
   const db = getDb();
   const project: Project = {
     id: nextId("project"),
-    name,
+    name: shortName,
+    shortName,
+    fullName,
     createdAt: options?.createdAt ?? nowIso(),
     status: options?.status ?? "in_progress",
     tag: options?.tag,
@@ -874,12 +1151,24 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 export async function updateProject(
   projectId: string,
-  patch: { status?: import("../../types").ProjectStatus; tag?: string; comment?: string; supervisor?: string }
+  patch: {
+    shortName?: string;
+    fullName?: string;
+    status?: import("../../types").ProjectStatus;
+    tag?: string;
+    comment?: string;
+    supervisor?: string;
+  }
 ): Promise<Project> {
   await withNetworkDelay();
   const db = getDb();
   const project = db.projects.find((p) => p.id === projectId);
   if (!project) throw new Error(`Project ${projectId} not found`);
+  if (patch.shortName !== undefined) {
+    project.shortName = patch.shortName;
+    project.name = patch.shortName;
+  }
+  if (patch.fullName !== undefined) project.fullName = patch.fullName;
   if (patch.status !== undefined) project.status = patch.status;
   if (patch.tag !== undefined) project.tag = patch.tag;
   if (patch.comment !== undefined) project.comment = patch.comment;
@@ -1199,6 +1488,7 @@ export async function updateTaskStatus(
     throw new Error("Задача не найдена");
   }
   target.status = status;
+  syncProfessionalCheckedWithStatus(target);
 }
 
 export async function listTaskStatusHistory(
@@ -1232,7 +1522,7 @@ export async function updateTaskProfessionalChecked(
   if (!target) {
     throw new Error("Задача не найдена");
   }
-  target.isProfessionalChecked = isProfessionalChecked;
+  applyProfessionalChecked(target, isProfessionalChecked);
 }
 
 export async function updateTasksProfessionalCheckedBulk(
@@ -1246,14 +1536,43 @@ export async function updateTasksProfessionalCheckedBulk(
   const updatedTaskIds: number[] = [];
   taskIds.forEach(taskId => {
     const target = findTask(orderId, taskId);
-    if (target) {
-      target.isProfessionalChecked = isProfessionalChecked;
-      updatedTaskIds.push(taskId);
-    }
+    if (!target) return;
+    if (isProfessionalChecked && !isCompletedStatus(target.status)) return;
+    applyProfessionalChecked(target, isProfessionalChecked);
+    updatedTaskIds.push(taskId);
   });
   return {
     order_id: orderId,
     is_professional_checked: isProfessionalChecked,
+    requested_count: taskIds.length,
+    updated_count: updatedTaskIds.length,
+    updated_task_ids: updatedTaskIds,
+  };
+}
+
+export async function updateTasksStatusBulk(
+  projectId: string,
+  orderId: string,
+  taskIds: number[],
+  status: string
+): Promise<BulkTaskStatusUpdateResult> {
+  await withNetworkDelay();
+  ensureOrder(projectId, orderId);
+  if (!VALID_TASK_STATUSES.has(status)) {
+    throw new Error("Недопустимый статус задачи");
+  }
+  const updatedTaskIds: number[] = [];
+  for (const taskId of taskIds) {
+    const target = findTask(orderId, taskId);
+    if (target) {
+      target.status = status;
+      syncProfessionalCheckedWithStatus(target);
+      updatedTaskIds.push(taskId);
+    }
+  }
+  return {
+    order_id: orderId,
+    status,
     requested_count: taskIds.length,
     updated_count: updatedTaskIds.length,
     updated_task_ids: updatedTaskIds,
@@ -1363,4 +1682,14 @@ export async function getOrderArticleSankey(
   ensureOrder(projectId, orderId);
   const selectedYear = getSelectedYear(orderId);
   return deepClone(buildArticleSankey(projectId, orderId, selectedYear));
+}
+
+export async function getOrderRisks(
+  projectId: string,
+  orderId: string,
+  options?: { year?: number; quarter?: number; groupId?: string }
+): Promise<OrganizationalRisksResponse> {
+  await withNetworkDelay();
+  ensureOrder(projectId, orderId);
+  return deepClone(buildOrganizationalRisks(projectId, orderId, options));
 }

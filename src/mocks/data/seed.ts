@@ -6,6 +6,7 @@ import type {
   TaskRecord,
   TemplateRecord,
 } from "../../types";
+import { resolveMockTaskUnits } from "../utils/taskUnits";
 
 export type MockSeedState = {
   projects: Project[];
@@ -17,7 +18,6 @@ export type MockSeedState = {
   infographicsByOrderAndYear: Record<string, Record<string, DashboardInfographicsResponse>>;
 };
 
-const UNIT_ROTATION = ["публикация", "доклад", "мероприятие", "исследование"] as const;
 const TASK_TEMPLATES = [
   "Подготовка публикации по результатам деятельности за квартал",
   "Сбор и верификация первичных данных для аналитического отчета",
@@ -248,7 +248,13 @@ function createTasksForGroup(
   let taskNumber = 1;
   const plan = getGroupQuarterPlan(groupPlanIndex);
   const totalTasks = plan.taskCounts.reduce((acc, count) => acc + count, 0);
-  const personAssignment = buildPersonAssignment(people, totalTasks, seedShift);
+  let personAssignment = buildPersonAssignment(people, totalTasks, seedShift);
+  // Смещение нагрузки на первого исполнителя для демонстрации риска неравномерности.
+  if (groupPlanIndex === 1 || groupPlanIndex === 4) {
+    personAssignment = personAssignment.map((person, index) =>
+      index % 2 === 0 ? people[0] : person
+    );
+  }
   let assignmentIndex = 0;
   for (let quarter = 1; quarter <= 4; quarter += 1) {
     const quarterIndex = quarter - 1;
@@ -258,16 +264,23 @@ function createTasksForGroup(
     for (let quarterTaskIndex = 0; quarterTaskIndex < quarterTaskCount; quarterTaskIndex += 1) {
       const assignedPerson =
         personAssignment[assignmentIndex] ?? people[(quarterTaskIndex + seedShift) % people.length];
+      const unitsIndex = taskNumber - 1;
+      const unitsFields = resolveMockTaskUnits(unitsIndex);
+
       tasks.push({
         taskId: taskIdSequence++,
         groupId,
         fullName: assignedPerson,
-        taskText: `${TASK_TEMPLATES[(taskNumber - 1) % TASK_TEMPLATES.length]} №${taskNumber}`,
-        units: UNIT_ROTATION[(taskNumber - 1) % UNIT_ROTATION.length],
+        taskText: `${TASK_TEMPLATES[unitsIndex % TASK_TEMPLATES.length]} №${taskNumber}`,
+        ...unitsFields,
         taskReport: `Отчет по задаче ${taskNumber}`,
+        actTaskText: `Акт: ${TASK_TEMPLATES[unitsIndex % TASK_TEMPLATES.length]} №${taskNumber}`,
+        actTaskAnnotation: unitsIndex % 5 === 0 ? "Требует уточнения" : null,
+        actDeadlineDate: taskQuarterDeadline(quarter),
         deadline: taskQuarterDeadline(quarter),
         status: quarterTaskIndex < quarterCompletedCount ? "Выполнено" : "Не выполнено",
-        isProfessionalChecked: quarterTaskIndex >= quarterUnverifiedCount,
+        isProfessionalChecked:
+          quarterTaskIndex < quarterCompletedCount && quarterTaskIndex >= quarterUnverifiedCount,
       });
       taskNumber += 1;
       assignmentIndex += 1;
@@ -351,7 +364,9 @@ export function buildSeedState(): MockSeedState {
   const projects: Project[] = [
     {
       id: "project-alpha",
-      name: "Тестовый проект №1",
+      name: "Проект №1",
+      shortName: "Проект №1",
+      fullName: "Тестовый проект №1 для проверки функционала системы",
       createdAt: "2026-01-10T08:00:00.000Z",
       status: "in_progress",
       tag: "Важный",
@@ -360,7 +375,9 @@ export function buildSeedState(): MockSeedState {
     },
     {
       id: "project-beta",
-      name: "Тестовый проект №2",
+      name: "Проект №2",
+      shortName: "Проект №2",
+      fullName: "Тестовый проект №2 (ожидает запуска)",
       createdAt: "2026-02-14T11:30:00.000Z",
       status: "planned",
       tag: "Новый",
@@ -368,13 +385,15 @@ export function buildSeedState(): MockSeedState {
       comment: "Второй тестовый проект. Ожидает запуска.",
     },
     {
-    id: "project-gamma",
-    name: "Завершённый тестовый проект",
-    createdAt: "2025-11-01T09:00:00.000Z",
-    status: "completed",
-    tag: "Архив",
-    supervisor: "Маринина Марина Мариновна",
-    comment: "Проект успешно завершён в конце 2025 года.",
+      id: "project-gamma",
+      name: "Архивный",
+      shortName: "Архивный",
+      fullName: "Завершённый тестовый проект",
+      createdAt: "2025-11-01T09:00:00.000Z",
+      status: "completed",
+      tag: "Архив",
+      supervisor: "Маринина Марина Мариновна",
+      comment: "Проект успешно завершён в конце 2025 года.",
     },
   ];
 

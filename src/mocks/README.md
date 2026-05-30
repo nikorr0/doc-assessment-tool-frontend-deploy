@@ -19,7 +19,7 @@ VITE_MOCK_SCENARIO=default
 
 Источник состояния: `src/mocks/store/db.ts`
 
-- `projects: Project[]`
+- `projects: Project[]` (поля `shortName`, `fullName`, `name`)
 - `ordersByProjectId: Record<string, DocumentRecord[]>`
 - `actsByOrderId: Record<string, DocumentRecord[]>`
 - `groupsByOrderId: Record<string, GroupRecord[]>`
@@ -27,6 +27,21 @@ VITE_MOCK_SCENARIO=default
 - `tasksByOrderAndGroup: Record<string, Record<string, TaskRecord[]>>`
 - `infographicsByOrderAndYear: Record<string, Record<string, DashboardInfographicsResponse>>`
 - `infographicsPollByOrderAndYear: Record<string, { attempts, readyAfter, startedAt, updatedAt }>`
+
+## API, добавленные для UI
+
+- `createProject(shortName, fullName, options?)` / `updateProject(..., { shortName?, fullName? })`
+- `updateTasksStatusBulk(...)` — массовая смена статуса задач
+- `getOrderRisks(projectId, orderId, { year?, quarter?, groupId? })` — организационные риски для вкладки «Риски» на дашборде
+
+Риски в mock-режиме вычисляются из in-memory задач:
+- выполненные без профессиональной проверки (по группам);
+- доля выполненных задач ниже 70% (высокий);
+- неравномерная нагрузка между исполнителями в группе (средний);
+- просроченные дедлайны;
+- мягкое предупреждение по единицам измерения (`unitsWarning && !unitsBlocked`).
+
+В seed-данных примерно каждая 3-я задача — мягкое предупреждение по единицам (приказ: «2 документа», акт: «1 документ» и т.п., см. `utils/taskUnits.ts`).
 
 ## Сценарии
 
