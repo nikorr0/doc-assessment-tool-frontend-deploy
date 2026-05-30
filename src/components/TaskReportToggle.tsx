@@ -42,42 +42,39 @@ function InfoCircleIcon({ size = 14 }: { size?: number }) {
   );
 }
 
-type TaskTextWithReportToggleProps = {
-  taskText?: string | null;
+type TaskReportToggleButtonProps = {
   reportText?: string | null;
   annotationText?: string | null;
   expanded: boolean;
   onToggle: () => void;
 };
 
-/** Текст задачи и круглая кнопка с иконкой info, если есть непустой отчет */
-export function TaskTextWithReportToggle({
-  taskText,
+/** Кнопка «Показать отчёт» для узкого столбца таблицы */
+export function TaskReportToggleButton({
   reportText,
   annotationText,
   expanded,
   onToggle,
-}: TaskTextWithReportToggleProps) {
+}: TaskReportToggleButtonProps) {
   const trimmedReport = (reportText ?? "").trim();
   const trimmedAnnotation = (annotationText ?? "").trim();
   const hasContent = trimmedReport.length > 0 || trimmedAnnotation.length > 0;
 
+  if (!hasContent) {
+    return null;
+  }
+
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-      <span>{taskText || "—"}</span>
-      {hasContent && (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={expanded ? "Скрыть отчёт по задаче" : "Показать отчёт по задаче"}
-          aria-expanded={expanded}
-          title={expanded ? "Скрыть отчёт" : "Показать отчёт"}
-          style={INFO_BUTTON_STYLE}
-        >
-          <InfoCircleIcon />
-        </button>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={expanded ? "Скрыть отчёт по задаче" : "Показать отчёт по задаче"}
+      aria-expanded={expanded}
+      title={expanded ? "Скрыть отчёт" : "Показать отчёт"}
+      style={INFO_BUTTON_STYLE}
+    >
+      <InfoCircleIcon />
+    </button>
   );
 }
 

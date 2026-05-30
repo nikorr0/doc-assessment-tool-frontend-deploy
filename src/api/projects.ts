@@ -28,8 +28,13 @@ export const listTaskStatusHistory = activeApi.listTaskStatusHistory;
 export const undoTaskStatus = activeApi.undoTaskStatus;
 export const updateTaskProfessionalChecked = activeApi.updateTaskProfessionalChecked;
 export const updateTasksProfessionalCheckedBulk = activeApi.updateTasksProfessionalCheckedBulk;
+export const updateTasksStatusBulk = activeApi.updateTasksStatusBulk;
 export const getOrderStats = activeApi.getOrderStats;
 export const getOrderInfographics = activeApi.getOrderInfographics;
 export const getOrderArticleSankey = activeApi.getOrderArticleSankey;
 export const getOrderRisks = activeApi.getOrderRisks;
 
+export type {
+  BulkTaskProfessionalCheckedResult,
+  BulkTaskStatusUpdateResult,
+} from "./projects.real";

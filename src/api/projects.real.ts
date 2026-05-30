@@ -181,6 +181,14 @@ export type BulkTaskProfessionalCheckedResult = {
   updated_task_ids: number[];
 };
 
+export type BulkTaskStatusUpdateResult = {
+  order_id: string;
+  status: string;
+  requested_count: number;
+  updated_count: number;
+  updated_task_ids: number[];
+};
+
 export async function updateTasksProfessionalCheckedBulk(
   projectId: string,
   orderId: string,
@@ -190,6 +198,19 @@ export async function updateTasksProfessionalCheckedBulk(
   const res = await api.put(`/projects/${projectId}/orders/${orderId}/tasks/professional-check`, {
     task_ids: taskIds,
     is_professional_checked: isProfessionalChecked,
+  });
+  return res.data;
+}
+
+export async function updateTasksStatusBulk(
+  projectId: string,
+  orderId: string,
+  taskIds: number[],
+  status: string
+): Promise<BulkTaskStatusUpdateResult> {
+  const res = await api.put(`/projects/${projectId}/orders/${orderId}/tasks/status`, {
+    task_ids: taskIds,
+    status,
   });
   return res.data;
 }

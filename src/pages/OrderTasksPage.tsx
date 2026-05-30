@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   getOrder,
   getProject,
   listGroupTasks,
   listGroups,
+  updateTasksStatusBulk,
+  updateTasksProfessionalCheckedBulk,
   updateTaskProfessionalChecked,
   updateTaskStatus,
 } from "../api/projects";
+import GroupTasksSection from "../components/GroupTasksSection";
 import { getApiErrorMessage } from "../utils/error";
 import type { DocumentRecord, GroupRecord, Project, TaskRecord } from "../types";
 
@@ -19,6 +22,7 @@ type TaskWithGroup = TaskRecord & {
 
 export default function OrderTasksPage() {
   const { projectId, orderId } = useParams<{ projectId: string; orderId: string }>();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [project, setProject] = useState<Project | null>(null);
   const [order, setOrder] = useState<DocumentRecord | null>(null);
@@ -28,6 +32,9 @@ export default function OrderTasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
   const [updatingTaskProfessionalCheckedId, setUpdatingTaskProfessionalCheckedId] = useState<number | null>(null);
+  const [bulkUpdatingStatus, setBulkUpdatingStatus] = useState(false);
+  const [bulkUpdatingProfessionalChecked, setBulkUpdatingProfessionalChecked] = useState(false);
+  const [bulkTargetStatus, setBulkTargetStatus] = useState<string>("Выполнено");
   const [groupFilter, setGroupFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -35,13 +42,34 @@ export default function OrderTasksPage() {
   const [pageSize, setPageSize] = useState<number>(10);
   const [deadlineSort, setDeadlineSort] = useState<"none" | "asc" | "desc">("none");
   const [quarterFilter, setQuarterFilter] = useState<string>("all");
-
+  const [yearFilter, setYearFilter] = useState<number | null>(null);
   useEffect(() => {
     const queryFromUrl = (searchParams.get("search") ?? "").trim();
-    const groupFromUrl = searchParams.get("group") ?? "";
+    const groupFromUrl = (searchParams.get("group") ?? "").trim();
+    const statusFromUrl = (searchParams.get("status") ?? "").trim().toLowerCase();
+    const quarterFromUrl = (searchParams.get("quarter") ?? "").trim();
+    const yearFromUrl = (searchParams.get("year") ?? "").trim();
+
     setSearchQuery(queryFromUrl);
-    if (groupFromUrl) {
-      setGroupFilter(groupFromUrl);
+    setGroupFilter(groupFromUrl || "all");
+
+    if (["not_completed", "in_progress", "completed", "other"].includes(statusFromUrl)) {
+      setStatusFilter(statusFromUrl);
+    } else {
+      setStatusFilter("all");
+    }
+
+    if (/^\d{4}-Q[1-4]$/.test(quarterFromUrl)) {
+      setQuarterFilter(quarterFromUrl);
+    } else {
+      setQuarterFilter("all");
+    }
+
+    if (yearFromUrl) {
+      const y = Number(yearFromUrl);
+      setYearFilter(Number.isInteger(y) && y >= 1900 && y <= 3000 ? y : null);
+    } else {
+      setYearFilter(null);
     }
   }, [searchParams]);
 
@@ -140,16 +168,47 @@ export default function OrderTasksPage() {
     };
   }, []);
 
+  const parseTaskDate = useCallback((value?: string | null): Date | null => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const iso = new Date(trimmed);
+    if (!Number.isNaN(iso.getTime())) {
+      return iso;
+    }
+
+    const m = trimmed.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/);
+    if (!m) return null;
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    const year = Number(m[3]);
+    const normalized = new Date(year, month - 1, day);
+    if (
+      Number.isNaN(normalized.getTime()) ||
+      normalized.getFullYear() !== year ||
+      normalized.getMonth() !== month - 1 ||
+      normalized.getDate() !== day
+    ) {
+      return null;
+    }
+    return normalized;
+  }, []);
+
+  const resolveTaskDeadline = useCallback((task: TaskWithGroup): string | null => {
+    return task.deadline ?? task.actDeadlineDate ?? null;
+  }, []);
+
   const formatDeadline = useCallback((value?: string | null) => {
     if (!value) {
       return "—";
     }
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
+    const parsed = parseTaskDate(value);
+    if (!parsed) {
       return value;
     }
     return parsed.toLocaleDateString("ru-RU");
-  }, []);
+  }, [parseTaskDate]);
 
   const resolveGroupLabel = useCallback(
     (task: TaskWithGroup) => {
@@ -178,11 +237,20 @@ export default function OrderTasksPage() {
 
   const getQuarterKey = useCallback((deadline?: string | null): string => {
     if (!deadline) return "none";
-    const d = new Date(deadline);
-    if (isNaN(d.getTime())) return "none";
-    const q = Math.floor(d.getMonth() / 3) + 1;
-    const y = d.getFullYear();
-    return `${y}-Q${q}`;
+    const date = parseTaskDate(deadline);
+    if (!date) return "none";
+    const quarter = Math.floor(date.getMonth() / 3) + 1;
+    return `${date.getFullYear()}-Q${quarter}`;
+  }, [parseTaskDate]);
+
+  const formatQuarterLabel = useCallback((quarterKey: string): string => {
+    const match = quarterKey.match(/^(\d{4})-Q([1-4])$/);
+    if (!match) {
+      return quarterKey;
+    }
+    const year = match[1];
+    const quarter = match[2];
+    return `${quarter}-й квартал ${year} года`;
   }, []);
 
   const filteredTasks = useMemo(() => {
@@ -195,21 +263,43 @@ export default function OrderTasksPage() {
         query.length === 0 ||
         (task.fullName ?? "").toLowerCase().includes(query) ||
         (task.taskText ?? "").toLowerCase().includes(query);
+      const deadlineResolved = resolveTaskDeadline(task);
       const byQuarter =
-        quarterFilter === "all" || getQuarterKey(task.deadline) === quarterFilter;
-      return byGroup && byStatus && bySearch && byQuarter;
+        quarterFilter === "all" || getQuarterKey(deadlineResolved) === quarterFilter;
+      let byYear = true;
+      if (quarterFilter === "all" && yearFilter !== null) {
+        if (!deadlineResolved) {
+          byYear = false;
+        } else {
+          const d = parseTaskDate(deadlineResolved);
+          byYear = !!d && d.getFullYear() === yearFilter;
+        }
+      }
+      return byGroup && byStatus && bySearch && byQuarter && byYear;
     });
 
     if (deadlineSort !== "none") {
       result = [...result].sort((a, b) => {
-        const da = a.deadline ? new Date(a.deadline).getTime() : Infinity;
-        const db = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+        const da = parseTaskDate(resolveTaskDeadline(a))?.getTime() ?? Infinity;
+        const db = parseTaskDate(resolveTaskDeadline(b))?.getTime() ?? Infinity;
         return deadlineSort === "asc" ? da - db : db - da;
       });
     }
 
     return result;
-  }, [tasks, groupFilter, statusFilter, searchQuery, quarterFilter, deadlineSort, getStatusFilterKey, getQuarterKey]);
+  }, [
+    tasks,
+    groupFilter,
+    statusFilter,
+    searchQuery,
+    quarterFilter,
+    yearFilter,
+    deadlineSort,
+    getStatusFilterKey,
+    getQuarterKey,
+    resolveTaskDeadline,
+    parseTaskDate,
+  ]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -225,11 +315,33 @@ export default function OrderTasksPage() {
   const availableQuarters = useMemo(() => {
     const set = new Set<string>();
     tasks.forEach(t => {
-      const q = getQuarterKey(t.deadline);
+      const q = getQuarterKey(resolveTaskDeadline(t));
       if (q !== "none") set.add(q);
     });
     return Array.from(set).sort();
-  }, [tasks, getQuarterKey]);
+  }, [tasks, getQuarterKey, resolveTaskDeadline]);
+
+  const quarterSelectOptions = useMemo(() => {
+    const set = new Set<string>(availableQuarters);
+    if (quarterFilter !== "all") {
+      set.add(quarterFilter);
+    }
+    return Array.from(set).sort();
+  }, [availableQuarters, quarterFilter]);
+
+  const bulkScopeTasks = filteredTasks;
+
+  const completedTasks = useMemo(
+    () => bulkScopeTasks.filter(task => getStatusFilterKey(task.status) === "completed"),
+    [bulkScopeTasks, getStatusFilterKey]
+  );
+
+  const completedTasksAllChecked = useMemo(
+    () => completedTasks.length > 0 && completedTasks.every(task => Boolean(task.isProfessionalChecked)),
+    [completedTasks]
+  );
+
+  const completedTasksToggleTargetChecked = !completedTasksAllChecked;
 
   const handleTaskStatusChange = useCallback(
     async (taskId: number, newStatus: string) => {
@@ -271,6 +383,112 @@ export default function OrderTasksPage() {
     [projectId, orderId]
   );
 
+  const handleCompletedTasksProfessionalCheckedToggle = useCallback(async () => {
+    if (!projectId || !orderId) return;
+    const taskIds = completedTasks.map(task => task.taskId);
+    if (taskIds.length === 0) return;
+    setBulkUpdatingProfessionalChecked(true);
+    try {
+      const result = await updateTasksProfessionalCheckedBulk(
+        projectId,
+        orderId,
+        taskIds,
+        completedTasksToggleTargetChecked
+      );
+      const updatedIds = new Set(
+        (result.updated_task_ids?.length ? result.updated_task_ids : taskIds).map(id => Number(id))
+      );
+      setTasks(prev =>
+        prev.map(task =>
+          updatedIds.has(task.taskId)
+            ? { ...task, isProfessionalChecked: completedTasksToggleTargetChecked }
+            : task
+        )
+      );
+    } catch (err: unknown) {
+      console.error(err);
+      setError(getApiErrorMessage(err, "Ошибка массового обновления проверки задач"));
+    } finally {
+      setBulkUpdatingProfessionalChecked(false);
+    }
+  }, [projectId, orderId, completedTasks, completedTasksToggleTargetChecked]);
+
+  const handleBulkStatusApply = useCallback(async (statusOverride?: string) => {
+    const targetStatus = statusOverride ?? bulkTargetStatus;
+    if (!projectId || !orderId || bulkUpdatingStatus) return;
+    const taskIds = bulkScopeTasks.map(task => task.taskId);
+    if (taskIds.length === 0) return;
+    setBulkUpdatingStatus(true);
+    try {
+      const result = await updateTasksStatusBulk(projectId, orderId, taskIds, targetStatus);
+      const updatedIds = new Set(
+        (result.updated_task_ids?.length ? result.updated_task_ids : taskIds).map(id => Number(id))
+      );
+      setTasks(prev =>
+        prev.map(task =>
+          updatedIds.has(task.taskId)
+            ? { ...task, status: targetStatus }
+            : task
+        )
+      );
+      if (updatedIds.size !== taskIds.length) {
+        setError(
+          updatedIds.size === 0
+            ? "Не удалось массово обновить статус задач"
+            : `Обновлено ${updatedIds.size} из ${taskIds.length} задач`
+        );
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      setError(getApiErrorMessage(err, "Ошибка массового обновления статуса задач"));
+    } finally {
+      setBulkUpdatingStatus(false);
+    }
+  }, [projectId, orderId, bulkUpdatingStatus, bulkScopeTasks, bulkTargetStatus]);
+
+  const bulkStatusMeta = getTaskStatusMeta(bulkTargetStatus);
+
+  const bulkStatusTitle = (() => {
+    const scopeText =
+      groupFilter === "all"
+        ? "по всем группам"
+        : `в группе «${groups.find(group => group.groupId === groupFilter)?.groupName || groupFilter}»`;
+    const expl = `Массово меняет статус у всех задач, попавших под текущие фильтры ${scopeText}.`;
+    if (pageState === "loading") {
+      return `${expl} Дождитесь загрузки списка задач.`;
+    }
+    if (bulkScopeTasks.length === 0) {
+      return `${expl} Сейчас нет задач в текущем наборе фильтров.`;
+    }
+    if (bulkUpdatingStatus) {
+      return expl;
+    }
+    return `${expl} Следующее нажатие: установить «${bulkTargetStatus}».`;
+  })();
+
+  const completedTasksToggleMeta = getTaskProfessionalCheckedMeta(completedTasksToggleTargetChecked);
+
+  const completedTasksBulkTitle = (() => {
+    const scopeText =
+      groupFilter === "all"
+        ? "по всем группам"
+        : `в группе «${groups.find(group => group.groupId === groupFilter)?.groupName || groupFilter}»`;
+    const expl =
+      `Массово меняет отметку «Проверено» / «Не проверено» только у задач со статусом «Выполнено» ${scopeText}. Остальные задачи не затрагивает.`;
+    if (pageState === "loading") {
+      return `${expl} Дождитесь загрузки списка задач.`;
+    }
+    if (completedTasks.length === 0) {
+      return `${expl} Сейчас нет задач со статусом «Выполнено».`;
+    }
+    if (bulkUpdatingProfessionalChecked) {
+      return expl;
+    }
+    return completedTasksToggleTargetChecked
+      ? `${expl} Следующее нажатие: для всех выполненных — «Проверено».`
+      : `${expl} Следующее нажатие: для всех выполненных — «Не проверено».`;
+  })();
+
   if (!projectId || !orderId) {
     return (
       <div className="card">
@@ -285,255 +503,86 @@ export default function OrderTasksPage() {
 
   return (
     <div>
-      <Link to={`/projects/${projectId}/${orderId}`} className="back-link">
-        ← Назад к приказу
-      </Link>
+      <button
+        type="button"
+        className="back-link"
+        onClick={() => navigate(-1)}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 0,
+          font: "inherit",
+          fontWeight: 500,
+        }}
+      >
+        ← Назад
+      </button>
       <h1 className="page-title">Все задачи приказа "{order?.fileName}"</h1>
       <p className="subtitle">Проект "{project?.name}"</p>
 
-      <div className="card">
-        <div className="card-header-row">
-          <h3 style={{ margin: 0 }}>Задачи приказа</h3>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => refreshTasks()}
-            disabled={pageState === "loading"}
-          >
-            Обновить
-          </button>
-        </div>
-        <div className="tasks-filters">
-          <label className="form-field">
-            <span className="form-field-label">Группа</span>
-            <select
-              className="form-control"
-              value={groupFilter}
-              onChange={e => setGroupFilter(e.target.value)}
-            >
-              <option value="all">Все группы</option>
-              {groups.map(group => (
-                <option key={group.groupId} value={group.groupId}>
-                  {group.groupName || group.groupId}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="form-field">
-            <span className="form-field-label">Статус</span>
-            <select
-              className="form-control"
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-            >
-              <option value="all">Все статусы</option>
-              <option value="not_completed">Не выполнено</option>
-              <option value="in_progress">В работе</option>
-              <option value="completed">Выполнено</option>
-            </select>
-          </label>
-          <label className="form-field">
-            <span className="form-field-label">Квартал</span>
-            <select
-              className="form-control"
-              value={quarterFilter}
-              onChange={e => setQuarterFilter(e.target.value)}
-            >
-              <option value="all">Все кварталы</option>
-              {availableQuarters.map(q => (
-                <option key={q} value={q}>{q}</option>
-              ))}
-            </select>
-          </label>
-          <label className="form-field">
-            <span className="form-field-label">Срок выполнения</span>
-            <select
-              className="form-control"
-              value={deadlineSort}
-              onChange={e => setDeadlineSort(e.target.value as "none" | "asc" | "desc")}
-            >
-              <option value="none">Без сортировки</option>
-              <option value="asc">По возрастанию</option>
-              <option value="desc">По убыванию</option>
-            </select>
-          </label>
-          <label className="form-field form-field-search">
-            <span className="form-field-label">Поиск</span>
-            <input
-              className="form-control"
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Поиск по ФИО или задаче"
-            />
-          </label>
-        </div>
-
-        {pageState === "loading" && <div>Загрузка задач...</div>}
-        {pageState === "error" && <div style={{ color: "crimson" }}>{error ?? "Ошибка загрузки задач"}</div>}
-        {pageState === "idle" && tasks.length === 0 && (
-          <div className="empty-state">Задачи для этого приказа пока не обнаружены.</div>
-        )}
-        {pageState === "idle" && tasks.length > 0 && filteredTasks.length === 0 && (
-          <div className="empty-state">По заданным фильтрам ничего не найдено.</div>
-        )}
-        {pageState === "idle" && filteredTasks.length > 0 && (
-          <>
-          <table className="acts-table">
-            <thead>
-              <tr>
-                <th>Группа</th>
-                <th>ФИО</th>
-                <th>Задача</th>
-                <th>Ед. измерения</th>
-                <th>Срок выполнения</th>
-                <th style={{ width: 220 }}>Статус</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedTasks.map(task => {
-                const statusMeta = getTaskStatusMeta(task.status);
-                const professionalCheckedMeta = getTaskProfessionalCheckedMeta(
-                  task.isProfessionalChecked
-                );
-                const isUpdating = updatingTaskId === task.taskId;
-                const isUpdatingProfessionalChecked =
-                  updatingTaskProfessionalCheckedId === task.taskId;
-                return (
-                  <tr key={`${task.groupId}-${task.taskId}`}>
-                    <td>{resolveGroupLabel(task)}</td>
-                    <td>{task.fullName || "—"}</td>
-                    <td>{task.taskText || "—"}</td>
-                    <td>{task.units || "—"}</td>
-                    <td>{formatDeadline(task.deadline)}</td>
-                    <td>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        <div>
-                          <select
-                            value={task.status || "Не выполнено"}
-                            onChange={e => handleTaskStatusChange(task.taskId, e.target.value)}
-                            disabled={isUpdating}
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: 6,
-                              fontWeight: 600,
-                              fontSize: 13,
-                              backgroundColor: statusMeta.background,
-                              color: statusMeta.color,
-                              border: `1px solid ${statusMeta.color}`,
-                              cursor: isUpdating ? "wait" : "pointer",
-                              minWidth: 140,
-                            }}
-                          >
-                            <option value="Не выполнено">Не выполнено</option>
-                            <option value="В работе">В работе</option>
-                            <option value="Выполнено">Выполнено</option>
-                          </select>
-                          {isUpdating && (
-                            <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>
-                              Сохранение...
-                            </span>
-                          )}
-                        </div>
-                        <div>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleTaskProfessionalCheckedChange(
-                                task.taskId,
-                                !task.isProfessionalChecked
-                              )
-                            }
-                            disabled={isUpdatingProfessionalChecked}
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: 6,
-                              fontWeight: 600,
-                              fontSize: 13,
-                              backgroundColor: professionalCheckedMeta.background,
-                              color: professionalCheckedMeta.color,
-                              border: `1px solid ${professionalCheckedMeta.borderColor}`,
-                              cursor: isUpdatingProfessionalChecked ? "wait" : "pointer",
-                              minWidth: 140,
-                            }}
-                          >
-                            {task.isProfessionalChecked ? "Проверено" : "Не проверено"}
-                          </button>
-                          {isUpdatingProfessionalChecked && (
-                            <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>
-                              Сохранение...
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-           </table>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-              Записей на странице:
-              <select
-                className="form-control"
-                style={{ width: "auto", padding: "2px 6px" }}
-                value={pageSize}
-                onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
-              >
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-              </select>
-            </label>
-            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-              <button
-                type="button"
-                className="secondary"
-                style={{ padding: "4px 10px", fontSize: 13 }}
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(1)}
-              >«</button>
-              <button
-                type="button"
-                className="secondary"
-                style={{ padding: "4px 10px", fontSize: 13 }}
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              >‹</button>
-              <span style={{ fontSize: 13, minWidth: 80, textAlign: "center" }}>
-                Стр. {currentPage} из {totalPages}
-              </span>
-              <button
-                type="button"
-                className="secondary"
-                style={{ padding: "4px 10px", fontSize: 13 }}
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              >›</button>
-              <button
-                type="button"
-                className="secondary"
-                style={{ padding: "4px 10px", fontSize: 13 }}
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage(totalPages)}
-              >»</button>
-            </div>
-            <span style={{ fontSize: 12, color: "#64748b" }}>
-              Показано {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredTasks.length)} из {filteredTasks.length}
-            </span>
-          </div>
-          </>
-        )}
-      </div>
+      <GroupTasksSection
+        title="Задачи приказа"
+        tasksState={pageState}
+        tasksError={error}
+        tasks={tasks}
+        filteredTasks={filteredTasks}
+        paginatedTasks={paginatedTasks}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        onCurrentPageChange={setCurrentPage}
+        onPageSizeChange={size => {
+          setPageSize(size);
+          setCurrentPage(1);
+        }}
+        onRefresh={() => refreshTasks()}
+        refreshDisabled={pageState === "loading"}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        quarterFilter={quarterFilter}
+        quarterOptions={quarterSelectOptions}
+        onQuarterFilterChange={setQuarterFilter}
+        formatQuarterLabel={formatQuarterLabel}
+        deadlineSort={deadlineSort}
+        onDeadlineSortChange={setDeadlineSort}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        getTaskStatusMeta={getTaskStatusMeta}
+        getTaskProfessionalCheckedMeta={getTaskProfessionalCheckedMeta}
+        updatingTaskId={updatingTaskId}
+        updatingTaskProfessionalCheckedId={updatingTaskProfessionalCheckedId}
+        onTaskStatusChange={handleTaskStatusChange}
+        onTaskProfessionalCheckedChange={handleTaskProfessionalCheckedChange}
+        resolveTaskDeadline={resolveTaskDeadline}
+        formatDeadline={formatDeadline}
+        getRowKey={task => `${task.groupId}-${task.taskId}`}
+        showGroupFilter
+        groupFilter={groupFilter}
+        onGroupFilterChange={setGroupFilter}
+        groups={groups}
+        includeGroupColumn
+        resolveGroupLabel={resolveGroupLabel}
+        noTasksMessage="Задачи для этого приказа пока не обнаружены."
+        bulkProfessionalCheckedControl={{
+          title: completedTasksBulkTitle,
+          busy: bulkUpdatingProfessionalChecked,
+          disabled:
+            bulkUpdatingProfessionalChecked || pageState !== "idle" || completedTasks.length === 0,
+          targetChecked: completedTasksToggleTargetChecked,
+          onToggle: handleCompletedTasksProfessionalCheckedToggle,
+          meta: completedTasksToggleMeta,
+        }}
+        bulkStatusControl={{
+          title: bulkStatusTitle,
+          busy: bulkUpdatingStatus,
+          disabled: bulkUpdatingStatus || pageState !== "idle" || bulkScopeTasks.length === 0,
+          selectedStatus: bulkTargetStatus,
+          onStatusChange: setBulkTargetStatus,
+          onApply: handleBulkStatusApply,
+          meta: bulkStatusMeta,
+        }}
+      />
     </div>
   );
 }

@@ -1,4 +1,11 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   deleteAct,
@@ -15,6 +22,7 @@ import {
   listTemplates,
   undoTaskStatus,
   updateTaskStatus,
+  updateTasksStatusBulk,
   updateTaskProfessionalChecked,
   updateTasksProfessionalCheckedBulk,
   uploadAct,
@@ -23,7 +31,7 @@ import { getApiErrorMessage } from "../utils/error";
 import { toValidationIssues } from "../utils/validationIssues";
 import ValidationIssuesModal from "../components/ValidationIssuesModal";
 import { StatusBar, StatusBarDot } from "../components/StatusBar";
-import { TaskReportPanelRow, TaskTextWithReportToggle } from "../components/TaskReportToggle";
+import GroupTasksSection from "../components/GroupTasksSection";
 import type {
   DocumentRecord,
   DocumentValidationStatus,
@@ -36,9 +44,15 @@ import type {
   ValidationIssue,
 } from "../types";
 
-function statusHistoryCardClassFromNewStatus(newStatus?: string | null): string {
+function statusHistoryCardClassFromNewStatus(
+  newStatus?: string | null,
+  unmatchedDone?: boolean
+): string {
   const normalized = (newStatus ?? "").trim().toLowerCase();
   const base = "status-history-card";
+  if (unmatchedDone) {
+    return `${base} status-history-card--unmatched`;
+  }
   if (normalized.startsWith("выполн")) {
     return `${base} status-history-card--done`;
   }
@@ -85,6 +99,38 @@ function getDocumentStatusLabel(status?: string | null): string {
   return labels[normalized] ?? (status?.trim() || "—");
 }
 
+function formatHistoryCell(value?: string | null): string {
+  const normalized = (value ?? "").trim();
+  return normalized || "—";
+}
+
+function isUnmatchedHistoryRecord(record: TaskStatusHistoryRecord): boolean {
+  return Boolean(record.unmatchedDone);
+}
+
+
+function isSoftUnitsWarning(unitsWarning?: boolean, unitsBlocked?: boolean): boolean {
+  return Boolean(unitsWarning) && !Boolean(unitsBlocked);
+}
+
+function taskStatusChipStyle(meta: {
+  background: string;
+  color: string;
+}): CSSProperties {
+  return {
+    display: "inline-block",
+    padding: "4px 8px",
+    borderRadius: 6,
+    fontWeight: 600,
+    fontSize: 13,
+    backgroundColor: meta.background,
+    color: meta.color,
+    border: `1px solid ${meta.color}`,
+    textAlign: "center",
+    boxSizing: "border-box",
+  };
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -117,11 +163,15 @@ export default function OrderPage() {
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
   const [updatingTaskProfessionalCheckedId, setUpdatingTaskProfessionalCheckedId] = useState<number | null>(null);
+  const [bulkUpdatingStatus, setBulkUpdatingStatus] = useState(false);
+  const [bulkTargetStatus, setBulkTargetStatus] = useState<string>("Выполнено");
   const [bulkUpdatingProfessionalChecked, setBulkUpdatingProfessionalChecked] = useState(false);
-  const [expandedReportTaskId, setExpandedReportTaskId] = useState<number | null>(null);
   const [statusHistory, setStatusHistory] = useState<TaskStatusHistoryRecord[]>([]);
   const [statusHistoryState, setStatusHistoryState] = useState<LoadState>("idle");
   const [statusHistoryError, setStatusHistoryError] = useState<string | null>(null);
+  const [historyStatusTransitionFilter, setHistoryStatusTransitionFilter] = useState<string>("all");
+  const [historySourceFilter, setHistorySourceFilter] = useState<string>("all");
+  const [historySearchQuery, setHistorySearchQuery] = useState<string>("");
   const [undoTargetByHistoryId, setUndoTargetByHistoryId] = useState<Record<string, string>>({});
   const [undoInProgressHistoryId, setUndoInProgressHistoryId] = useState<string | null>(null);
   const [isPerformanceDrawerOpen, setIsPerformanceDrawerOpen] = useState(false);
@@ -380,14 +430,16 @@ export default function OrderPage() {
     [projectId, orderId, selectedGroupId]
   );
 
-  const refreshStatusHistory = useCallback(async () => {
+  const refreshStatusHistory = useCallback(async (options?: { silent?: boolean }) => {
     if (!projectId || !orderId) {
       setStatusHistory([]);
       setStatusHistoryState("idle");
       setStatusHistoryError(null);
       return;
     }
-    setStatusHistoryState("loading");
+    if (!options?.silent) {
+      setStatusHistoryState("loading");
+    }
     setStatusHistoryError(null);
     try {
       const data = await listTaskStatusHistory(projectId, orderId);
@@ -395,7 +447,9 @@ export default function OrderPage() {
       setStatusHistoryState("idle");
     } catch (err) {
       console.error(err);
-      setStatusHistoryState("error");
+      if (!options?.silent) {
+        setStatusHistoryState("error");
+      }
       setStatusHistoryError(getApiErrorMessage(err, "Не удалось загрузить историю статусов"));
     }
   }, [projectId, orderId]);
@@ -425,7 +479,7 @@ export default function OrderPage() {
       if (tasksPollInFlightRef.current) return;
       tasksPollInFlightRef.current = true;
       try {
-        await refreshTasks({ silent: true });
+        await Promise.all([refreshTasks({ silent: true }), refreshStatusHistory({ silent: true })]);
         attempts += 1;
         if (attempts >= TASKS_POLL_MAX_ATTEMPTS) {
           stopTasksPolling();
@@ -437,7 +491,7 @@ export default function OrderPage() {
 
     pollOnce();
     tasksPollIntervalRef.current = setInterval(pollOnce, TASKS_POLL_INTERVAL_MS);
-  }, [projectId, orderId, selectedGroupId, refreshTasks, stopTasksPolling]);
+  }, [projectId, orderId, selectedGroupId, refreshTasks, refreshStatusHistory, stopTasksPolling]);
 
   useEffect(() => {
     stopTasksPolling();
@@ -570,6 +624,12 @@ export default function OrderPage() {
     return "other";
   }, []);
 
+  const getStatusTransitionKey = useCallback(
+    (oldStatus?: string | null, newStatus?: string | null) =>
+      `${getStatusFilterKey(oldStatus)}__${getStatusFilterKey(newStatus)}`,
+    [getStatusFilterKey]
+  );
+
   const getQuarterKey = useCallback((deadline?: string | null): string => {
     if (!deadline) return "none";
     const date = parseTaskDate(deadline);
@@ -585,7 +645,7 @@ export default function OrderPage() {
     }
     const year = match[1];
     const quarter = match[2];
-    return `${quarter}-й квартал ${year} года`;
+    return `${quarter} квартал ${year} года`;
   }, []);
 
   const availableTaskQuarters = useMemo(() => {
@@ -626,9 +686,11 @@ export default function OrderPage() {
     return result;
   }, [tasks, statusFilter, searchQuery, tasksQuarterFilter, tasksDeadlineSort, getStatusFilterKey, getQuarterKey, resolveTaskDeadline, parseTaskDate]);
 
+  const bulkScopeTasks = filteredTasks;
+
   const completedTasks = useMemo(
-    () => tasks.filter(task => getStatusFilterKey(task.status) === "completed"),
-    [tasks, getStatusFilterKey]
+    () => bulkScopeTasks.filter(task => getStatusFilterKey(task.status) === "completed"),
+    [bulkScopeTasks, getStatusFilterKey]
   );
 
   const completedTasksAllChecked = useMemo(
@@ -656,11 +718,61 @@ export default function OrderPage() {
   }, [tasksCurrentPage, tasksTotalPages]);
 
   const filteredStatusHistory = useMemo(() => {
-    if (!selectedGroupId) {
-      return statusHistory;
-    }
-    return statusHistory.filter(record => (record.groupId ?? "") === selectedGroupId);
-  }, [statusHistory, selectedGroupId]);
+    const query = historySearchQuery.trim().toLowerCase();
+    return statusHistory.filter(record => {
+      const byGroup = !selectedGroupId || (record.groupId ?? "") === selectedGroupId;
+      const byStatusTransition =
+        historyStatusTransitionFilter === "all"
+          ? true
+          : historyStatusTransitionFilter === "unmatched_done"
+            ? isUnmatchedHistoryRecord(record)
+            : !isUnmatchedHistoryRecord(record) &&
+              getStatusTransitionKey(record.oldStatus, record.newStatus) === historyStatusTransitionFilter;
+      const bySource =
+        historySourceFilter === "all" ||
+        record.source === historySourceFilter;
+      const bySearch =
+        query.length === 0 ||
+        (record.taskText ?? "").toLowerCase().includes(query) ||
+        (record.actTaskText ?? "").toLowerCase().includes(query) ||
+        (record.fullName ?? "").toLowerCase().includes(query) ||
+        (record.actFullName ?? "").toLowerCase().includes(query);
+      return byGroup && byStatusTransition && bySource && bySearch;
+    });
+  }, [
+    statusHistory,
+    selectedGroupId,
+    historySearchQuery,
+    historyStatusTransitionFilter,
+    historySourceFilter,
+    getStatusTransitionKey,
+  ]);
+
+  const historySourceFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "Все" },
+      { value: "auto", label: "Автоматически" },
+      { value: "manual", label: "Вручную" },
+    ],
+    []
+  );
+
+  const historyStatusTransitionOptions = useMemo(
+    () => [
+      { value: "all", label: "Все переходы" },
+      { value: "unmatched_done", label: "Не распределено" },
+      { value: "not_completed__not_completed", label: "Не выполнено -> Не выполнено" },
+      { value: "not_completed__in_progress", label: "Не выполнено -> В работе" },
+      { value: "not_completed__completed", label: "Не выполнено -> Выполнено" },
+      { value: "in_progress__not_completed", label: "В работе -> Не выполнено" },
+      { value: "in_progress__in_progress", label: "В работе -> В работе" },
+      { value: "in_progress__completed", label: "В работе -> Выполнено" },
+      { value: "completed__not_completed", label: "Выполнено -> Не выполнено" },
+      { value: "completed__in_progress", label: "Выполнено -> В работе" },
+      { value: "completed__completed", label: "Выполнено -> Выполнено" },
+    ],
+    []
+  );
 
   const filteredAllActs = useMemo(() => {
     let result = acts.filter(act => {
@@ -864,6 +976,56 @@ export default function OrderPage() {
     completedTasksToggleTargetChecked,
   ]);
 
+  const handleBulkStatusApply = useCallback(async (statusOverride?: string) => {
+    const targetStatus = statusOverride ?? bulkTargetStatus;
+    if (!projectId || !orderId || bulkUpdatingStatus) return;
+    if (bulkScopeTasks.length === 0) return;
+    const targetTaskIds = bulkScopeTasks.map(task => task.taskId);
+
+    setBulkUpdatingStatus(true);
+    setTasksError(null);
+
+    try {
+      const result = await updateTasksStatusBulk(
+        projectId,
+        orderId,
+        targetTaskIds,
+        targetStatus
+      );
+      const updatedTaskIds = new Set<number>(
+        (result.updated_task_ids?.length ? result.updated_task_ids : targetTaskIds) ?? targetTaskIds
+      );
+
+      setTasks(prev =>
+        prev.map(task =>
+          updatedTaskIds.has(task.taskId) ? { ...task, status: targetStatus } : task
+        )
+      );
+
+      if (updatedTaskIds.size !== targetTaskIds.length) {
+        setTasksError(
+          updatedTaskIds.size === 0
+            ? "Не удалось обновить статус задач в текущих фильтрах"
+            : `Обновлено ${updatedTaskIds.size} из ${targetTaskIds.length} задач в текущих фильтрах`
+        );
+      }
+
+      await refreshStatusHistory();
+    } catch (err: unknown) {
+      console.error(err);
+      setTasksError(getApiErrorMessage(err, "Ошибка массового обновления статуса задач"));
+    } finally {
+      setBulkUpdatingStatus(false);
+    }
+  }, [
+    projectId,
+    orderId,
+    bulkUpdatingStatus,
+    bulkScopeTasks,
+    bulkTargetStatus,
+    refreshStatusHistory,
+  ]);
+
   const formatHistoryTime = useCallback((value?: string | null) => {
     if (!value) {
       return "—";
@@ -877,7 +1039,7 @@ export default function OrderPage() {
 
   const handleUndoFromHistory = useCallback(
     async (record: TaskStatusHistoryRecord) => {
-      if (!projectId || !orderId) return;
+      if (!projectId || !orderId || !record.taskId) return;
       const targetStatus = undoTargetByHistoryId[record.id] ?? "Не выполнено";
       setUndoInProgressHistoryId(record.id);
       try {
@@ -1094,6 +1256,22 @@ export default function OrderPage() {
   }
 
   const completedTasksToggleMeta = getTaskProfessionalCheckedMeta(completedTasksToggleTargetChecked);
+  const bulkStatusMeta = getTaskStatusMeta(bulkTargetStatus);
+
+  const bulkStatusTitle = (() => {
+    const expl =
+      "Массово меняет статус задач в текущих фильтрах в выбранной группе.";
+    if (!selectedGroupId) {
+      return `${expl} Сначала выберите группу.`;
+    }
+    if (tasksState === "loading") {
+      return `${expl} Дождитесь загрузки списка задач.`;
+    }
+    if (bulkScopeTasks.length === 0) {
+      return `${expl} В текущих фильтрах нет задач для обновления.`;
+    }
+    return `${expl} Следующее нажатие: установить «${bulkTargetStatus}» для ${bulkScopeTasks.length} задач.`;
+  })();
 
   const completedTasksBulkTitle = (() => {
     const expl =
@@ -1120,7 +1298,7 @@ export default function OrderPage() {
       <Link to={`/projects/${projectId}`} className="back-link">
         ← Назад к проекту
       </Link>
-      <h1 className="page-title">Приказ "{order?.fileName}"</h1>
+      <h1 className="page-title">Приказ "{formatFileName(order?.fileName, 65)}"</h1>
       <div
         style={{
           position: "sticky",
@@ -1138,11 +1316,11 @@ export default function OrderPage() {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: "#1e293b", lineHeight: 1.2 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: "#1e293b", lineHeight: 1.2 }}>
             {project?.name}
           </span>
           {project?.createdAt && (
-            <span style={{ fontSize: 12, color: "#64748b" }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#64748b" }}>
               Год: {new Date(project.createdAt).getFullYear()}
             </span>
           )}
@@ -1191,7 +1369,7 @@ export default function OrderPage() {
       </div>
 
       <div className="card" id="order-info">
-        <h3 style={{ marginTop: 0 }}>Информация о приказе</h3>
+        <h3 style={{ marginTop: 0 }}>Информация</h3>
         {orderState === "loading" && <div>Загрузка приказа...</div>}
         {orderState === "error" && <div style={{ color: "crimson" }}>{error}</div>}
         {order && (
@@ -1208,7 +1386,7 @@ export default function OrderPage() {
                 <tr>
                   <td>
                     <div className="order-info-file-cell">
-                      <div className="order-info-file-name">{formatFileName(order.fileName, 50)}</div>
+                      <div className="order-info-file-name">{order.fileName}</div>
                     </div>
                   </td>
                   <td>
@@ -1343,7 +1521,7 @@ export default function OrderPage() {
                             </svg>
                           ) : null}
                         </div>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "#475569", marginBottom: 10 }}>{quarter}-й квартал</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "#475569", marginBottom: 10 }}>{quarter} квартал</span>
 
                         {/* Карточка квартала */}
                         <div style={{
@@ -1498,10 +1676,10 @@ export default function OrderPage() {
                 <span className="form-field-label">Квартал</span>
                 <select className="form-control" value={allActsQuarterFilter} onChange={e => setAllActsQuarterFilter(e.target.value)}>
                   <option value="all">Все кварталы</option>
-                  <option value="1">1-й квартал</option>
-                  <option value="2">2-й квартал</option>
-                  <option value="3">3-й квартал</option>
-                  <option value="4">4-й квартал</option>
+                  <option value="1">1 квартал</option>
+                  <option value="2">2 квартал</option>
+                  <option value="3">3 квартал</option>
+                  <option value="4">4 квартал</option>
                 </select>
               </label>
               <label className="form-field" style={{ minWidth: 200 }}>
@@ -1602,326 +1780,67 @@ export default function OrderPage() {
       </div>
 
       {groupsState === "idle" && groups.length > 0 && (
-        <div className="card" id="tasks-group">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <h3 style={{ margin: 0 }}>Задачи группы</h3>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => refreshTasks()}
-              disabled={tasksState === "loading"}
-            >
-              Обновить
-            </button>
-          </div>
-          <div className="tasks-filters">
-            <label className="form-field">
-              <span className="form-field-label">Статус</span>
-              <select
-                className="form-control"
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
-              >
-                <option value="all">Все статусы</option>
-                <option value="not_completed">Не выполнено</option>
-                <option value="in_progress">В работе</option>
-                <option value="completed">Выполнено</option>
-              </select>
-            </label>
-            <label className="form-field">
-              <span className="form-field-label">Квартал</span>
-              <select
-                className="form-control"
-                value={tasksQuarterFilter}
-                onChange={e => setTasksQuarterFilter(e.target.value)}
-              >
-                <option value="all">Все кварталы</option>
-                {availableTaskQuarters.map(quarter => (
-                  <option key={quarter} value={quarter}>
-                    {formatQuarterLabel(quarter)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="form-field">
-              <span className="form-field-label">Срок выполнения</span>
-              <select
-                className="form-control"
-                value={tasksDeadlineSort}
-                onChange={e => setTasksDeadlineSort(e.target.value as "none" | "asc" | "desc")}
-              >
-                <option value="none">Без сортировки</option>
-                <option value="asc">По возрастанию</option>
-                <option value="desc">По убыванию</option>
-              </select>
-            </label>
-            <label className="form-field form-field-search">
-              <span className="form-field-label">Поиск</span>
-              <input
-                className="form-control"
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Поиск по ФИО или задаче"
-              />
-            </label>
-            <div
-              className="form-field"
-              style={{
-                justifyContent: "flex-end",
-                marginLeft: "auto",
-                minWidth: 260,
-                alignItems: "flex-end",
-              }}
-            >
-              <div
-                style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}
-                title={completedTasksBulkTitle}
-              >
-                <button
-                  type="button"
-                  onClick={handleCompletedTasksProfessionalCheckedToggle}
-                  disabled={
-                    bulkUpdatingProfessionalChecked ||
-                    tasksState !== "idle" ||
-                    !selectedGroupId ||
-                    completedTasks.length === 0
-                  }
-                  aria-label={completedTasksBulkTitle}
-                  title={completedTasksBulkTitle}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    fontWeight: 700,
-                    fontSize: 13,
-                    backgroundColor: completedTasksToggleMeta.background,
-                    color: completedTasksToggleMeta.color,
-                    border: `1px solid ${completedTasksToggleMeta.borderColor}`,
-                    cursor:
-                      bulkUpdatingProfessionalChecked ||
-                      tasksState !== "idle" ||
-                      !selectedGroupId ||
-                      completedTasks.length === 0
-                        ? "not-allowed"
-                        : "pointer",
-                    opacity:
-                      bulkUpdatingProfessionalChecked ||
-                      tasksState !== "idle" ||
-                      !selectedGroupId ||
-                      completedTasks.length === 0
-                        ? 0.6
-                        : 1,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {bulkUpdatingProfessionalChecked
-                    ? "Сохранение..."
-                    : completedTasksToggleTargetChecked
-                      ? "Сменить статус на Проверено"
-                      : "Сменить статус на Не проверено"}
-                </button>
-              </div>
-            </div>
-          </div>
-          {tasksState === "loading" && <div>Загрузка задач...</div>}
-          {tasksState === "error" && (
-            <div style={{ color: "crimson" }}>{tasksError ?? "Ошибка загрузки задач"}</div>
-          )}
-          {tasksState === "idle" && tasks.length === 0 && (
-            <div className="empty-state">Задачи для этой группы пока не обнаружены.</div>
-          )}
-          {tasksState === "idle" && tasks.length > 0 && filteredTasks.length === 0 && (
-            <div className="empty-state">По заданным фильтрам ничего не найдено.</div>
-          )}
-          {tasksState === "idle" && filteredTasks.length > 0 && (
-            <>
-              <table className="acts-table">
-                <thead>
-                  <tr>
-                    <th>ФИО</th>
-                    <th>Задача</th>
-                    <th>Ед. измерения</th>
-                    <th>Срок выполнения</th>
-                    <th style={{ width: 220 }}>Статус</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedTasks.map(task => {
-                    const statusMeta = getTaskStatusMeta(task.status);
-                    const professionalCheckedMeta = getTaskProfessionalCheckedMeta(
-                      task.isProfessionalChecked
-                    );
-                    const isUpdating = updatingTaskId === task.taskId;
-                    const isUpdatingProfessionalChecked =
-                      updatingTaskProfessionalCheckedId === task.taskId;
-                    const reportText = (task.taskReport ?? "").trim();
-                    const annotationText = (task.actTaskAnnotation ?? "").trim();
-                    const hasReport = Boolean(reportText);
-                    const hasAnnotation = Boolean(annotationText);
-                    const isReportExpanded = expandedReportTaskId === task.taskId;
-                    return (
-                      <Fragment key={task.taskId}>
-                        <tr>
-                          <td>{task.fullName || "—"}</td>
-                          <td>
-                            <TaskTextWithReportToggle
-                              taskText={task.taskText}
-                              reportText={task.taskReport}
-                              annotationText={task.actTaskAnnotation}
-                              expanded={isReportExpanded}
-                              onToggle={() =>
-                                setExpandedReportTaskId(prev =>
-                                  prev === task.taskId ? null : task.taskId
-                                )
-                              }
-                            />
-                          </td>
-                          <td>{task.units || "—"}</td>
-                          <td>{formatDeadline(resolveTaskDeadline(task))}</td>
-                          <td>
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                alignItems: "center",
-                                gap: 6,
-                              }}
-                            >
-                              <div>
-                                <select
-                                  value={task.status || "Не выполнено"}
-                                  onChange={e => handleTaskStatusChange(task.taskId, e.target.value)}
-                                  disabled={isUpdating || !selectedGroupId}
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderRadius: 6,
-                                    fontWeight: 600,
-                                    fontSize: 13,
-                                    backgroundColor: statusMeta.background,
-                                    color: statusMeta.color,
-                                    border: `1px solid ${statusMeta.color}`,
-                                    cursor: isUpdating ? "wait" : "pointer",
-                                    minWidth: 140,
-                                  }}
-                                >
-                                  <option value="Не выполнено">Не выполнено</option>
-                                  <option value="В работе">В работе</option>
-                                  <option value="Выполнено">Выполнено</option>
-                                </select>
-                                {isUpdating && (
-                                  <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>
-                                    Сохранение...
-                                  </span>
-                                )}
-                              </div>
-                              <div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleTaskProfessionalCheckedChange(
-                                      task.taskId,
-                                      !task.isProfessionalChecked
-                                    )
-                                  }
-                                  disabled={isUpdatingProfessionalChecked || !selectedGroupId}
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderRadius: 6,
-                                    fontWeight: 600,
-                                    fontSize: 13,
-                                    backgroundColor: professionalCheckedMeta.background,
-                                    color: professionalCheckedMeta.color,
-                                    border: `1px solid ${professionalCheckedMeta.borderColor}`,
-                                    cursor: isUpdatingProfessionalChecked ? "wait" : "pointer",
-                                    minWidth: 140,
-                                  }}
-                                >
-                                  {task.isProfessionalChecked ? "Проверено" : "Не проверено"}
-                                </button>
-                                {isUpdatingProfessionalChecked && (
-                                  <span style={{ marginLeft: 8, fontSize: 12, color: "#64748b" }}>
-                                    Сохранение...
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                        {(hasReport || hasAnnotation) && isReportExpanded && (
-                          <TaskReportPanelRow
-                            reportText={reportText}
-                            annotationText={annotationText}
-                            colSpan={5}
-                          />
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-                  Записей на странице:
-                  <select
-                    className="form-control"
-                    style={{ width: "auto", padding: "2px 6px" }}
-                    value={tasksPageSize}
-                    onChange={e => setTasksPageSize(Number(e.target.value))}
-                  >
-                    <option value={5}>5</option>
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                  </select>
-                </label>
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  <button
-                    type="button"
-                    className="secondary"
-                    style={{ padding: "4px 10px", fontSize: 13 }}
-                    disabled={tasksCurrentPage === 1}
-                    onClick={() => setTasksCurrentPage(1)}
-                  >
-                    «
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    style={{ padding: "4px 10px", fontSize: 13 }}
-                    disabled={tasksCurrentPage === 1}
-                    onClick={() => setTasksCurrentPage(p => Math.max(1, p - 1))}
-                  >
-                    ‹
-                  </button>
-                  <span style={{ fontSize: 13, minWidth: 80, textAlign: "center" }}>
-                    Стр. {tasksCurrentPage} из {tasksTotalPages}
-                  </span>
-                  <button
-                    type="button"
-                    className="secondary"
-                    style={{ padding: "4px 10px", fontSize: 13 }}
-                    disabled={tasksCurrentPage === tasksTotalPages}
-                    onClick={() => setTasksCurrentPage(p => Math.min(tasksTotalPages, p + 1))}
-                  >
-                    ›
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    style={{ padding: "4px 10px", fontSize: 13 }}
-                    disabled={tasksCurrentPage === tasksTotalPages}
-                    onClick={() => setTasksCurrentPage(tasksTotalPages)}
-                  >
-                    »
-                  </button>
-                </div>
-                <span style={{ fontSize: 12, color: "#64748b" }}>
-                  Показано {(tasksCurrentPage - 1) * tasksPageSize + 1}
-                  –{Math.min(tasksCurrentPage * tasksPageSize, filteredTasks.length)} из {filteredTasks.length}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
+        <GroupTasksSection
+          id="tasks-group"
+          title="Задачи группы"
+          tasksState={tasksState}
+          tasksError={tasksError}
+          tasks={tasks}
+          filteredTasks={filteredTasks}
+          paginatedTasks={paginatedTasks}
+          currentPage={tasksCurrentPage}
+          totalPages={tasksTotalPages}
+          pageSize={tasksPageSize}
+          onCurrentPageChange={setTasksCurrentPage}
+          onPageSizeChange={setTasksPageSize}
+          onRefresh={() => refreshTasks()}
+          refreshDisabled={tasksState === "loading"}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          quarterFilter={tasksQuarterFilter}
+          quarterOptions={availableTaskQuarters}
+          onQuarterFilterChange={setTasksQuarterFilter}
+          formatQuarterLabel={formatQuarterLabel}
+          deadlineSort={tasksDeadlineSort}
+          onDeadlineSortChange={setTasksDeadlineSort}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          getTaskStatusMeta={getTaskStatusMeta}
+          getTaskProfessionalCheckedMeta={getTaskProfessionalCheckedMeta}
+          updatingTaskId={updatingTaskId}
+          updatingTaskProfessionalCheckedId={updatingTaskProfessionalCheckedId}
+          onTaskStatusChange={handleTaskStatusChange}
+          onTaskProfessionalCheckedChange={handleTaskProfessionalCheckedChange}
+          resolveTaskDeadline={resolveTaskDeadline}
+          formatDeadline={formatDeadline}
+          getRowKey={task => String(task.taskId)}
+          disableTaskActions={!selectedGroupId}
+          bulkStatusControl={{
+            title: bulkStatusTitle,
+            busy: bulkUpdatingStatus,
+            disabled:
+              bulkUpdatingStatus ||
+              tasksState !== "idle" ||
+              !selectedGroupId ||
+              bulkScopeTasks.length === 0,
+            selectedStatus: bulkTargetStatus,
+            onStatusChange: setBulkTargetStatus,
+            onApply: handleBulkStatusApply,
+            meta: bulkStatusMeta,
+          }}
+          bulkProfessionalCheckedControl={{
+            title: completedTasksBulkTitle,
+            busy: bulkUpdatingProfessionalChecked,
+            disabled:
+              bulkUpdatingProfessionalChecked ||
+              tasksState !== "idle" ||
+              !selectedGroupId ||
+              completedTasks.length === 0,
+            targetChecked: completedTasksToggleTargetChecked,
+            onToggle: handleCompletedTasksProfessionalCheckedToggle,
+            meta: completedTasksToggleMeta,
+          }}
+        />
       )}
 
       <div className="card" id="status-history">
@@ -1935,33 +1854,165 @@ export default function OrderPage() {
             onClick={() => refreshStatusHistory()}
             disabled={statusHistoryState === "loading"}
           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
             Обновить
           </button>
+        </div>
+        <div className="tasks-filters" style={{ marginTop: 8 }}>
+          <label className="form-field form-field-search">
+            <span className="form-field-label">Поиск</span>
+            <input
+              className="form-control"
+              type="text"
+              value={historySearchQuery}
+              onChange={e => setHistorySearchQuery(e.target.value)}
+              placeholder="Поиск по ФИО и тексту задачи (приказ/акт)"
+            />
+          </label>
+          <label className="form-field">
+            <span className="form-field-label">Переход статуса</span>
+            <select
+              className="form-control"
+              value={historyStatusTransitionFilter}
+              onChange={e => setHistoryStatusTransitionFilter(e.target.value)}
+            >
+              {historyStatusTransitionOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field">
+            <span className="form-field-label">Способ изменения</span>
+            <select
+              className="form-control"
+              value={historySourceFilter}
+              onChange={e => setHistorySourceFilter(e.target.value)}
+            >
+              {historySourceFilterOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         {statusHistoryState === "loading" && <div>Загрузка истории...</div>}
         {statusHistoryState === "error" && (
           <div style={{ color: "crimson" }}>{statusHistoryError ?? "Ошибка загрузки истории"}</div>
         )}
         {statusHistoryState === "idle" && filteredStatusHistory.length === 0 && (
-          <div className="empty-state">История изменений пока пуста.</div>
+          <div className="empty-state">
+            {statusHistory.length === 0
+              ? "История изменений пока пуста."
+              : "По заданным фильтрам история не найдена."}
+          </div>
         )}
         {statusHistoryState === "idle" && filteredStatusHistory.length > 0 && (
           <div className="status-history-panel">
             {filteredStatusHistory.map(record => {
+              const isManual = record.source === "manual";
+              const isUnmatched = isUnmatchedHistoryRecord(record);
               const targetStatus = undoTargetByHistoryId[record.id] ?? "Не выполнено";
               const undoBusy = undoInProgressHistoryId === record.id;
+              const canUndo = !isUnmatched && typeof record.taskId === "number";
               const oldMeta = getTaskStatusMeta(record.oldStatus);
               const newMeta = getTaskStatusMeta(record.newStatus);
               const sourceAuto = record.source === "auto";
+              const orderGroupShort =
+                record.orderGroupShort?.trim() || resolveGroupName(record.groupId || undefined);
+              const actGroupShort =
+                record.actGroupShort?.trim() || record.orderGroupShort?.trim() || orderGroupShort;
+              const hasManualActNotes = Boolean(
+                (record.taskReport ?? "").trim() || (record.actTaskAnnotation ?? "").trim()
+              );
+              const manualReportWithNotes = [
+                (record.taskReport ?? "").trim(),
+                (record.actTaskAnnotation ?? "").trim(),
+              ]
+                .filter(Boolean)
+                .join(" / ");
+              const snapshotRows: Array<{
+                label: string;
+                orderValue: string;
+                actValue: string;
+                isUnitsSoftWarning?: boolean;
+              }> = [
+                {
+                  label: "Текст задачи",
+                  orderValue: formatHistoryCell(record.taskText),
+                  actValue: formatHistoryCell(record.actTaskText),
+                },
+                {
+                  label: "Единицы измерения",
+                  orderValue: formatHistoryCell(record.units),
+                  actValue: isSoftUnitsWarning(record.unitsWarning, record.unitsBlocked)
+                    ? `${formatHistoryCell(record.actUnits)}`
+                    : formatHistoryCell(record.actUnits),
+                  isUnitsSoftWarning: isSoftUnitsWarning(record.unitsWarning, record.unitsBlocked),
+                },
+                {
+                  label: "ФИО",
+                  orderValue: formatHistoryCell(record.fullName),
+                  actValue: formatHistoryCell(record.actFullName),
+                },
+                {
+                  label: "Группа",
+                  orderValue: formatHistoryCell(orderGroupShort),
+                  actValue: formatHistoryCell(actGroupShort),
+                },
+                {
+                  label: "Срок исполнения",
+                  orderValue: formatHistoryCell(formatDeadline(record.deadline)),
+                  actValue: formatHistoryCell(formatDeadline(record.actDeadline)),
+                },
+              ];
+              if (isManual) {
+                if (hasManualActNotes) {
+                  snapshotRows.push({
+                    label: "Отчет / пояснение (акт)",
+                    orderValue: formatHistoryCell(manualReportWithNotes),
+                    actValue: "—",
+                  });
+                }
+              } else {
+                snapshotRows.push(
+                  {
+                    label: "Отчет",
+                    orderValue: "—",
+                    actValue: formatHistoryCell(record.taskReport),
+                  },
+                  {
+                    label: "Пояснение",
+                    orderValue: "—",
+                    actValue: formatHistoryCell(record.actTaskAnnotation),
+                  }
+                );
+              }
               return (
-                <article key={record.id} className={statusHistoryCardClassFromNewStatus(record.newStatus)}>
-                  <div className="status-history-card__top">
-                    <div>
-                      <p className="status-history-card__time">
-                        {formatHistoryTime(record.changedAt)}
-                        <span>Задача № {record.taskId}</span>
-                      </p>
-                    </div>
+                <article
+                  key={record.id}
+                  className={statusHistoryCardClassFromNewStatus(
+                    record.newStatus,
+                    isUnmatched
+                  )}
+                >
+                  <div className="status-history-card__header">
+                    {isUnmatched ? (
+                      <div className="status-history-unmatched-badge">Не распределено</div>
+                    ) : (
+                      <div className="status-history-transition">
+                        <span style={taskStatusChipStyle(oldMeta)}>{record.oldStatus || "—"}</span>
+                        <span className="status-history-arrow" aria-hidden>
+                          →
+                        </span>
+                        <span style={taskStatusChipStyle(newMeta)}>{record.newStatus || "—"}</span>
+                      </div>
+                    )}
                     <span
                       className={
                         sourceAuto
@@ -1974,75 +2025,105 @@ export default function OrderPage() {
                     </span>
                   </div>
 
-                  <div className="status-history-transition">
-                    <span
-                      className="status-history-pill"
-                      style={{
-                        background: oldMeta.background,
-                        color: oldMeta.color,
-                        border: `1px solid ${oldMeta.color}`,
-                      }}
+                  <div className="status-history-card__table-wrap">
+                    <table
+                      className={
+                        isUnmatched
+                          ? "status-history-table status-history-table--act-only"
+                          : isManual
+                          ? "status-history-table status-history-table--manual"
+                          : "status-history-table"
+                      }
                     >
-                      {record.oldStatus || "—"}
-                    </span>
-                    <span className="status-history-arrow" aria-hidden>
-                      →
-                    </span>
-                    <span
-                      className="status-history-pill"
-                      style={{
-                        background: newMeta.background,
-                        color: newMeta.color,
-                        border: `1px solid ${newMeta.color}`,
-                      }}
-                    >
-                      {record.newStatus || "—"}
-                    </span>
+                      <thead>
+                        <tr>
+                          <th>Поле</th>
+                          {!isUnmatched && <th>Приказ</th>}
+                          {(!isManual || isUnmatched) && <th>Акт</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {snapshotRows.map(row => (
+                          <tr
+                            key={row.label}
+                            className={row.isUnitsSoftWarning ? "status-history-row--units-warning" : undefined}
+                          >
+                            <th scope="row">{row.label}</th>
+                            {!isUnmatched && <td>{row.orderValue}</td>}
+                            {(!isManual || isUnmatched) && <td>{row.actValue}</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
 
-                  <dl className="status-history-dl">
-                    <div>
-                      <dt>ФИО</dt>
-                      <dd>{record.fullName || "—"}</dd>
+                  {!isManual && (
+                    <div className="status-history-decision-block">
+                      <p>
+                        <strong>Решение:</strong>{" "}
+                        {isUnmatched
+                          ? "не распределено"
+                          : formatHistoryCell(record.decision)}
+                      </p>
+                      <p>
+                        <strong>Причина:</strong>{" "}
+                        {isUnmatched
+                          ? "не была найдена подходящая задача в приказе"
+                          : formatHistoryCell(record.decisionReason)}
+                      </p>
                     </div>
-                    <div>
-                      <dt>Группа</dt>
-                      <dd>{resolveGroupName(record.groupId || undefined)}</dd>
-                    </div>
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <dt>Задача</dt>
-                      <dd>{record.taskText || "—"}</dd>
-                    </div>
-                  </dl>
+                  )}
 
-                  <div className="status-history-card__change">
-                    <div className="status-history-card__change-controls">
-                      <select
-                        className="form-control"
-                        aria-label="Целевой статус задачи"
-                        value={targetStatus}
-                        onChange={e =>
-                          setUndoTargetByHistoryId(prev => ({
-                            ...prev,
-                            [record.id]: e.target.value,
-                          }))
-                        }
-                        disabled={undoBusy}
-                      >
-                        <option value="Не выполнено">Не выполнено</option>
-                        <option value="В работе">В работе</option>
-                        <option value="Выполнено">Выполнено</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => handleUndoFromHistory(record)}
-                        disabled={undoBusy}
-                        title={`Установить статус "${targetStatus}" для этой задачи`}
-                      >
-                        {undoBusy ? "Применение..." : `Изменить на "${targetStatus}"`}
-                      </button>
+                  {canUndo ? (
+                    <div className="status-history-card__change">
+                      <span className="status-history-card__change-label">Изменить статус задачи</span>
+                      <div className="status-history-apply-row">
+                        <select
+                          className="form-control status-history-apply-select"
+                          aria-label="Целевой статус задачи"
+                          value={targetStatus}
+                          onChange={e =>
+                            setUndoTargetByHistoryId(prev => ({
+                              ...prev,
+                              [record.id]: e.target.value,
+                            }))
+                          }
+                          disabled={undoBusy}
+                        >
+                          <option value="Не выполнено">Не выполнено</option>
+                          <option value="В работе">В работе</option>
+                          <option value="Выполнено">Выполнено</option>
+                        </select>
+                        <button
+                            type="button"
+                            onClick={() => handleUndoFromHistory(record)}
+                            disabled={undoBusy}
+                            title={`Установить статус «${targetStatus}» для этой задачи`}
+                            aria-label={`Установить статус «${targetStatus}»`}
+                            style={{ fontSize: 13, padding: "8px 10px" }}
+                          >
+                            {undoBusy ? "Применение…" : "Применить"}
+                        </button>
+                        <div className="status-history-apply-trailing">
+                          <time
+                            className="status-history-card__timestamp"
+                            dateTime={record.changedAt ?? undefined}
+                          >
+                            {formatHistoryTime(record.changedAt)}
+                          </time>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="status-history-card__meta">
+                      <time
+                        className="status-history-card__timestamp"
+                        dateTime={record.changedAt ?? undefined}
+                      >
+                        {formatHistoryTime(record.changedAt)}
+                      </time>
+                    </div>
+                  )}
                 </article>
               );
             })}
