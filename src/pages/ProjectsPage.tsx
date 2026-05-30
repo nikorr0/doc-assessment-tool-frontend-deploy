@@ -36,7 +36,8 @@ interface CreateModalProps {
 }
 
 function CreateProjectModal({ onClose, onCreate }: CreateModalProps) {
-  const [name, setName] = useState("");
+  const [shortName, setShortName] = useState("");
+  const [fullName, setFullName] = useState("");
   const [date, setDate] = useState(todayIso());
   const [status, setStatus] = useState<ProjectStatus>("in_progress");
   const [tag, setTag] = useState("");
@@ -45,7 +46,7 @@ function CreateProjectModal({ onClose, onCreate }: CreateModalProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = name.trim().length > 0 && date.length > 0 && !saving;
+  const canSubmit = shortName.trim().length > 0 && fullName.trim().length > 0 && date.length > 0 && !saving;
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -53,7 +54,7 @@ function CreateProjectModal({ onClose, onCreate }: CreateModalProps) {
     setError(null);
     try {
       const createdAt = new Date(date + "T10:00:00.000Z").toISOString();
-      const project = await createProject(name.trim(), {
+      const project = await createProject(shortName.trim(), fullName.trim(), {
         status,
         tag: tag.trim() || undefined,
         comment: comment.trim() || undefined,
@@ -83,14 +84,24 @@ function CreateProjectModal({ onClose, onCreate }: CreateModalProps) {
         <h3 style={{ marginTop: 0, marginBottom: 20 }}>Новый проект</h3>
 
         <div className="modal-form-row">
-          <label>Наименование проекта <span className="required-star">*</span></label>
+          <label>Краткое наименование проекта <span className="required-star">*</span></label>
           <input
             type="text"
-            placeholder="Введите название проекта"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            placeholder="Введите краткое название проекта"
+            value={shortName}
+            onChange={(e) => setShortName(e.target.value)}
             autoFocus
           />
+        </div>
+        <div className="modal-form-row">
+          <label>Полное наименование проекта <span className="required-star">*</span></label>
+          <textarea
+            placeholder="Введите полное наименование проекта"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            rows={3}
+          />
+          <span className="field-hint">Это название используется при генерации шаблона квартального акта.</span>
         </div>
 
         <div className="modal-form-row">
@@ -169,7 +180,8 @@ interface EditModalProps {
 }
 
 function EditProjectModal({ project, onClose, onSave }: EditModalProps) {
-  const [name, setName] = useState(project.name);
+  const [shortName, setShortName] = useState(project.shortName ?? project.name);
+  const [fullName, setFullName] = useState(project.fullName ?? project.name);
   const [status, setStatus] = useState<ProjectStatus>(project.status ?? "in_progress");
   const [tag, setTag] = useState(project.tag ?? "");
   const [comment, setComment] = useState(project.comment ?? "");
@@ -177,7 +189,7 @@ function EditProjectModal({ project, onClose, onSave }: EditModalProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = name.trim().length > 0 && !saving;
+  const canSubmit = shortName.trim().length > 0 && fullName.trim().length > 0 && !saving;
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -185,7 +197,8 @@ function EditProjectModal({ project, onClose, onSave }: EditModalProps) {
     setError(null);
     try {
       const updated = await updateProject(project.id, {
-        name: name.trim(),
+        shortName: shortName.trim(),
+        fullName: fullName.trim(),
         status,
         tag: tag.trim() || undefined,
         comment: comment.trim() || undefined,
@@ -214,13 +227,22 @@ function EditProjectModal({ project, onClose, onSave }: EditModalProps) {
         <h3 style={{ marginTop: 0, marginBottom: 20 }}>Редактировать проект</h3>
 
         <div className="modal-form-row">
-          <label>Наименование проекта <span className="required-star">*</span></label>
+          <label>Краткое наименование проекта <span className="required-star">*</span></label>
           <input
             type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={shortName}
+            onChange={(e) => setShortName(e.target.value)}
             autoFocus
           />
+        </div>
+        <div className="modal-form-row">
+          <label>Полное наименование проекта <span className="required-star">*</span></label>
+          <textarea
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            rows={3}
+          />
+          <span className="field-hint">Это название используется при генерации шаблона квартального акта.</span>
         </div>
 
         <div className="modal-form-row">
@@ -326,6 +348,7 @@ const orderedProjects = useMemo(() => {
     ? projects.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
+          (p.fullName ?? "").toLowerCase().includes(q) ||
           (p.tag ?? "").toLowerCase().includes(q) ||
           (p.comment ?? "").toLowerCase().includes(q) ||
           (p.supervisor ?? "").toLowerCase().includes(q)
@@ -384,6 +407,10 @@ const orderedProjects = useMemo(() => {
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" onClick={() => setShowModal(true)}>+ Создать</button>
             <button type="button" className="secondary" onClick={refreshProjects} disabled={loading === "loading"}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
               Обновить
             </button>
           </div>
