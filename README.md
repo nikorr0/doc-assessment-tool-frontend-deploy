@@ -1,73 +1,79 @@
-# React + TypeScript + Vite
+# doc-assessment-tool-frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Репозиторий содержит только фронтенд-часть веб-приложения** и предназначен для демонстрации пользовательского интерфейса.
 
-Currently, two official plugins are available:
+Приложение использует **in-memory моки** и **сгенерированные тестовые данные** (проекты, приказы, акты, задачи).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## О продукте
 
-## React Compiler
+Интерфейс отражает систему мониторинга исполнения индивидуальных поручений членов научных коллективов в рамках проектов. Работа строится на двух типах документов:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Приказ** — нормативный документ, содержащий перечень поручений для каждой из групп сотрудников.
+- **Акты** — отчётные документы, фиксирующие фактическое выполнение поручений по итогам квартала для отдельной группы сотрудников.
 
-## Expanding the ESLint configuration
+После загрузки документов система осуществляет извлечение задач, их сопоставление между собой и отображает актуальные статусы исполнения.В дашборде представлены аналитические диаграммы и оценка организационных рисков.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Стек
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- React 19 + TypeScript
+- Vite 7
+- React Router 7
+- Axios
+- Apache ECharts (диаграммы на дашборде)
+- ExcelJS / file-saver (экспорт ошибок/предупреждений после валидации документа)
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Быстрый старт
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Для локального просмотра UI с тестовыми данными (в `.env` уже включены моки):
+
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+или production-сборка:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm install
+npm run build
+npm run preview
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Веб-приложение откроется на `http://localhost:5173`.
+
+## Переменные окружения
+
+Создайте файл `.env` в корне проекта:
+
+```env
+# Подключить моки вместо реального API
+VITE_USE_MOCKS=true
+
+# Сценарий моков: default или error-in-templates
+VITE_MOCK_SCENARIO=default
+```
+
+Подробнее о мок-слое: [`src/mocks/README.md`](src/mocks/README.md).
+
+## Маршруты
+
+| Путь | Страница |
+|------|----------|
+| `/projects` | Список проектов |
+| `/projects/{projectId}` | Приказы проекта |
+| `/projects/{projectId}/{orderId}` | Страница приказа (акты, группы, шаблоны) |
+| `/projects/{projectId}/{orderId}/tasks` | Задачи групп |
+| `/projects/{projectId}/{orderId}/dashboard` | Дашборд и инфографика |
+| `/help` | Справка |
+
+## Структура проекта
+
+```
+src/
+├── api/              # HTTP-клиент и API-слой
+├── components/       # Общие UI-компоненты
+├── mocks/            # Моки
+├── pages/            # Страницы приложения
+├── types/            # TypeScript-типы
+└── utils/            # Утилиты (ошибки, валидация, экспорт)
 ```
