@@ -117,11 +117,11 @@ const STARTER_TASKS = [
   "Подтвердить выполнение задач по плану",
 ] as const;
 const ARTICLE_SAKEY_TASKS = [
-  "Написание статьи по атмосферному балансу",
-  "Написание статьи по воздушным потокам",
-  "Написание статьи по флористической растительности",
-  "Написание статьи по региональной дегидратации",
-  "Написание раздела статьи по биогенным веществам",
+  "Статья по атмосферному балансу",
+  "Статья по воздушным потокам",
+  "Статья по флористической растительности",
+  "Статья по региональной дегидратации",
+  "Раздел статьи по биогенным веществам",
 ] as const;
 const ARTICLE_SAKEY_PARTICIPANTS = [5, 4, 3, 2, 1] as const;
 
@@ -673,15 +673,28 @@ function buildMockTaskStatusHistoryForOrder(orderId: string): TaskStatusHistoryR
   return records;
 }
 
+function splitTaskStatusCounts(tasks: TaskRecord[]): {
+  completed: number;
+  notCompleted: number;
+  unverified: number;
+  allCompleted: number;
+} {
+  const allCompleted = tasks.filter(task => isCompletedStatus(task.status)).length;
+  const unverified = tasks.filter(
+    task => isCompletedStatus(task.status) && !task.isProfessionalChecked
+  ).length;
+  const completed = allCompleted - unverified;
+  const notCompleted = tasks.length - allCompleted;
+  return { completed, notCompleted, unverified, allCompleted };
+}
+
 function buildQuarterStats(tasks: TaskRecord[]): DashboardQuarterStat[] {
   const quarters: DashboardQuarterStat[] = [1, 2, 3, 4].map(quarter => {
     const quarterTasks = tasks.filter(task => getTaskQuarter(task.deadline) === quarter);
-    const completed = quarterTasks.filter(task => isCompletedStatus(task.status)).length;
-    const notCompleted = quarterTasks.length - completed;
-    const unverified = quarterTasks.filter(
-      task => isCompletedStatus(task.status) && !task.isProfessionalChecked
-    ).length;
-    const completionRate = quarterTasks.length ? roundRate((completed / quarterTasks.length) * 100) : 0;
+    const { completed, notCompleted, unverified, allCompleted } = splitTaskStatusCounts(quarterTasks);
+    const completionRate = quarterTasks.length
+      ? roundRate((allCompleted / quarterTasks.length) * 100)
+      : 0;
     return {
       quarter,
       completed,
@@ -700,13 +713,9 @@ function buildDashboardStats(projectId: string, orderId: string, selectedYear: n
 
   const groupStats: DashboardGroupStat[] = groups.map(group => {
     const tasks = (tasksByGroup[group.groupId] ?? []).filter(task => getTaskYear(task.deadline) === selectedYear);
-    const completed = tasks.filter(task => isCompletedStatus(task.status)).length;
-    const notCompleted = tasks.length - completed;
-    const unverified = tasks.filter(
-      task => isCompletedStatus(task.status) && !task.isProfessionalChecked
-    ).length;
+    const { completed, notCompleted, unverified, allCompleted } = splitTaskStatusCounts(tasks);
     const quarters = buildQuarterStats(tasks);
-    const completionRate = tasks.length ? roundRate((completed / tasks.length) * 100) : 0;
+    const completionRate = tasks.length ? roundRate((allCompleted / tasks.length) * 100) : 0;
     return {
       groupId: group.groupId,
       groupName: group.groupName,
@@ -732,15 +741,21 @@ function buildDashboardStats(projectId: string, orderId: string, selectedYear: n
   };
 }
 
-function buildGroupPeopleStats(orderId: string, selectedYear: number): DashboardGroupPeopleStat[] {
+function buildGroupPeopleStats(
+  orderId: string,
+  selectedYear: number,
+  quarter?: number
+): DashboardGroupPeopleStat[] {
   const db = getDb();
   const groups = db.groupsByOrderId[orderId] ?? [];
   const tasksByGroup = db.tasksByOrderAndGroup[orderId] ?? {};
 
   return groups.map(group => {
-    const sourceTasks = (tasksByGroup[group.groupId] ?? []).filter(
-      task => getTaskYear(task.deadline) === selectedYear
-    );
+    const sourceTasks = (tasksByGroup[group.groupId] ?? []).filter(task => {
+      if (getTaskYear(task.deadline) !== selectedYear) return false;
+      if (typeof quarter === "number" && getTaskQuarter(task.deadline) !== quarter) return false;
+      return true;
+    });
     const counter = new Map<
       string,
       { taskCount: number; completed: number; notCompleted: number; inProgress: number }
@@ -774,6 +789,17 @@ function buildGroupPeopleStats(orderId: string, selectedYear: number): Dashboard
       people,
     };
   });
+}
+
+function buildGroupPeopleQuarters(
+  orderId: string,
+  selectedYear: number
+): Record<string, DashboardGroupPeopleStat[]> {
+  const quarters: Record<string, DashboardGroupPeopleStat[]> = {};
+  for (const quarter of [1, 2, 3, 4]) {
+    quarters[String(quarter)] = buildGroupPeopleStats(orderId, selectedYear, quarter);
+  }
+  return quarters;
 }
 
 function buildGroupActStats(orderId: string): DashboardGroupActStat[] {
@@ -1651,11 +1677,13 @@ export async function getOrderInfographics(
       options?.threshold
     );
     const groupPeople = buildGroupPeopleStats(orderId, selectedYear);
+    const groupPeopleQuarters = buildGroupPeopleQuarters(orderId, selectedYear);
     const groupActs = buildGroupActStats(orderId);
     const data: DashboardInfographicsData = {
       stats,
       articleSankey,
       groupPeople,
+      groupPeopleQuarters,
       groupActs,
       availableYears,
       selectedYear,

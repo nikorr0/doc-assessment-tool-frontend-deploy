@@ -31,8 +31,17 @@ VITE_MOCK_SCENARIO=default
 ## API, добавленные для UI
 
 - `createProject(shortName, fullName, options?)` / `updateProject(..., { shortName?, fullName? })`
-- `updateTasksStatusBulk(...)` — массовая смена статуса задач
-- `getOrderRisks(projectId, orderId, { year?, quarter?, groupId? })` — организационные риски для вкладки «Риски» на дашборде
+- `updateTasksStatusBulk(...)` – массовая смена статуса задач
+- `getOrderRisks(projectId, orderId, { year?, quarter?, groupId? })` – организационные риски для вкладки «Риски» на дашборде
+- `getOrderInfographics(...)` – дашбордная инфографика; в ответе `groupPeople` (год) и `groupPeopleQuarters` (срезы по кварталам `"1"`–`"4"`)
+
+### Семантика статусов в `stats`
+
+Счётчики в `stats.groups` и `stats.quarters` разбиты так, чтобы сумма stacked-сегментов на диаграммах равнялась числу задач:
+
+- `completed` – выполненные с профессиональной проверкой
+- `unverified` – выполненные без профессиональной проверки
+- `notCompleted` – невыполненные
 
 Риски в mock-режиме вычисляются из in-memory задач:
 - выполненные без профессиональной проверки (по группам);
@@ -41,7 +50,7 @@ VITE_MOCK_SCENARIO=default
 - просроченные дедлайны;
 - мягкое предупреждение по единицам измерения (`unitsWarning && !unitsBlocked`).
 
-В seed-данных примерно каждая 3-я задача — мягкое предупреждение по единицам (приказ: «2 документа», акт: «1 документ» и т.п., см. `utils/taskUnits.ts`).
+В seed-данных примерно каждая 3-я задача – мягкое предупреждение по единицам (приказ: «2 документа», акт: «1 документ» и т.п., см. `utils/taskUnits.ts`).
 
 ## Сценарии
 
